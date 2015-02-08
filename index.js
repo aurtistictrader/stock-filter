@@ -87,8 +87,9 @@ function loadYahooData(SYMBOLS,size) {
 	for (var i = 0; i < SYMBOLS.length; i++) {
 		var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOLS[i] + '\'');
 		query.exec(function (error, response) {
+			if (error) {
 
-		    if (response.query.results != null) {
+			} else if (response.query.results != null) {
 			    var quote = response.query.results.quote;
 			    var percentageChange = parseFloat(quote.YearLow) / parseFloat(quote.LastTradePriceOnly);
 			    var marketCap;
