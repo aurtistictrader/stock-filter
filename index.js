@@ -18,7 +18,7 @@ app.set('port', (process.env.PORT || 5000))
 // app.set('port', (9001));
 app.use(express.static(__dirname + '/public'))
 
-app.get('/cron', function(request, response) {
+app.get('/cronny', function(request, response) {
   	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
 	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
 		if (err) {
@@ -46,14 +46,14 @@ app.get('/cron', function(request, response) {
 	      // write file and load yahoo stuff
 	      	// var filteredSymbols = loadYahooData(symbols);
 		    // console.log(symbols.length + " : " + (lines.length-4));
-		  	fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
-			    if(err) {
-			        console.log(err);
-			    } else {
-					console.log("Completed writing symbols");
-			        console.log("The file was saved!");
-			    }
-			}); 
+		 //  	fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
+			//     if(err) {
+			//         console.log(err);
+			//     } else {
+			// 		console.log("Completed writing symbols");
+			//         console.log("The file was saved!");
+			//     }
+			// }); 
 			// console.log("running");
 	      	var stuff = loadYahooData(symbols);
 	      	// console.log(stuff);
