@@ -84,7 +84,7 @@ function loadYahooData(SYMBOLS,size) {
 	// Grab current info and eliminate the ones that are uneeded
 
 	var total;
-	for (var i = 0; i < size; i++) {
+	for (var i = 0; i < SYMBOLS.length; i++) {
 		var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOLS[i] + '\'');
 		query.exec(function (error, response) {
 
@@ -109,10 +109,10 @@ function loadYahooData(SYMBOLS,size) {
 				    var 3monthvolume = parseInt(quote.AverageDailyVolume);
 				    var price = parseFloat(quote.LastTradePriceOnly);
 
-				    if (glico > 500000 && 3monthvolume > 200000 && price > 2) {
+				    if (glico > 500000 && 3monthvolume > 300000 && price > 2) {
 				    	// COPY + PARSE INTO DATABASE
 
-				    	// console.log(quote.symbol);
+				    	console.log(quote.symbol);
 					} else {
 						// console.log("Not meeting requirements");
 					}
