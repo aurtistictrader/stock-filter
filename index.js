@@ -8,7 +8,14 @@ var util = require('util');
 var _ = require('lodash');
 require('colors');
 
+var pg = require('pg');
+// var conString = process.env.DATABASE_URL ||  "postgres://localhost:5432/finance";
+
+conString = "postgres://localhost:5432/finance";
+client = new pg.Client(conString);
+
 app.set('port', (process.env.PORT || 5000))
+// app.set('port', (9001));
 app.use(express.static(__dirname + '/public'))
 
 app.get('/cron', function(request, response) {
@@ -21,41 +28,50 @@ app.get('/cron', function(request, response) {
 	    }
 	});
 	var symbols = [];
-	var instream = fs.createReadStream('./private/nasdaqtraded.txt');
-	var outstream = new stream;
-	var rl = readline.createInterface(instream, outstream);
-	var size = 0;
-	rl.on('line', function(line) {
-	  // process line here
-  	    if (line.substr(0,1) === "Y") {
+	var data = fs.readFileSync('./private/nasdaqtraded.txt','utf-8');
+	var lines = data.split("\n");
+	var tracker = 0;
+	var stringsymbols = "";
+	lines.forEach(function(line) {
+	  async(line, function(){
+	  	tracker++;
+	  	if (line.substr(0,1) === "Y") {
 	    	var bar = line.substr(2,line.length).indexOf("|");
 	    	// symbols.push("'" + line.substr(2, bar) + "'"); 
-	    	symbols.push(line.substr(2, bar)); 
-	    	size++;
+	    	symbols.push(line.substr(2, bar));
+	    	stringsymbols += line.substr(2,bar) + "\n"; 
 	    }
+	    if(tracker === lines.length ) {
+	      // final(symbols);
+	      // write file and load yahoo stuff
+	      	// var filteredSymbols = loadYahooData(symbols);
+		    // console.log(symbols.length + " : " + (lines.length-4));
+		  	fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
+			    if(err) {
+			        console.log(err);
+			    } else {
+					console.log("Completed writing symbols");
+			        console.log("The file was saved!");
+			    }
+			}); 
+			// console.log("running");
+	      	var stuff = loadYahooData(symbols);
+	      	// console.log(stuff);
+	    }
+	    // console.log(symbols.length + " : " + lines.length-4);
+	  })
 	});
 
-	rl.on('close', function() {
-	  // do something on finish here
-	  	fs.writeFile("./private/nasdaqsymbols.csv", symbols, function(err) {
-		    if(err) {
-		        console.log(err);
-		    } else {
-				console.log("Completed writing symbols");
-		        console.log("The file was saved!");
-		    }
-		}); 
-		// load yahoo data
-		loadYahooData(symbols,size);
-	});
-
-	// use yahoo api to load data and parse them
+	// console.log(symbols);
 	
 });
+
 
 app.get('/', function(request, response) {
   response.send('Hello World!')
 
+  populateSymbols();
+  // populateHistorical();
 });
 
 app.listen(app.get('port'), function() {
@@ -63,30 +79,33 @@ app.listen(app.get('port'), function() {
 
 });
 
+function populateSymbols() {
+	var q = 'COPY symbols FROM \'/Users/chengpeng123/Documents/finance-app/private/nasdaqsymbolssaved.csv\' WITH CSV;';
 
-function loadYahooData(SYMBOLS,size) {
-	var yahooData = require('yahoo-finance');
-	var now = new Date();
-	var dateFormat = require('dateformat');
-	var now = dateFormat(now, "isoDate");
+	pg.connect(conString, function(err, client, done) {
+	   client.query(q, function(err, result) {
+	      done();
+	      if(err) return console.error(err);
+	      console.log("Completed importing symbols");
+	   });
+	});
+};
 
-	var years = 5;
+function async(arg, callback) {
+  // console.log('do something with \''+arg+'\', return 1 sec later');
+  setTimeout(function() { callback(arg); }, 10);
+};
 
-	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-	// console.log(past);
-	// console.log(SYMBOLS);
-	console.time('grab all symbols');
-
-	var YQL = require("YQL");
-	// //select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=YHOO,GOOG,AAPL&f=sl1d1t1c1ohgv&e=.csv' and columns='symbol,price,date,time,change,col1,high,low,col2'
-	
-	
-	// Grab current info and eliminate the ones that are uneeded
-
-	var total;
-	for (var i = 0; i < SYMBOLS.length; i++) {
-		var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOLS[i] + '\'');
+function loadYahooData(SYMBOLS) {
+	var YQL = require('yql');
+	var newSymbols = [];
+	var tracker = 0;
+	var stringsymbols = "";
+	SYMBOLS.forEach(function(SYMBOL) {
+	  async(SYMBOL, function(results){
+	  	var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOL + '\'');
 		query.exec(function (error, response) {
+		  	tracker++;
 			if (error) {
 
 			} else if (response.query.results != null) {
@@ -111,43 +130,92 @@ function loadYahooData(SYMBOLS,size) {
 				    var price = parseFloat(quote.LastTradePriceOnly);
 
 				    if (glico > 500000 && threemonthvolume > 300000 && price > 2) {
-				    	// COPY + PARSE INTO DATABASE
-
-				    	console.log(quote.symbol);
+				    	// remove from SYMBOLS
+				    	newSymbols.push(SYMBOL);
+				    	console.log(SYMBOL);
+				    	stringsymbols+= SYMBOL + "\n";
 					} else {
+
 						// console.log("Not meeting requirements");
+					}
+
+					// console.log(SYMBOL);
+					console.log(SYMBOLS.length + " : " + tracker);
+					if (SYMBOLS.length === tracker ) {
+						console.log("FINISHED PARSING ALL");
+						fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
+						    if(err) {
+						        console.log(err);
+						    } else {
+								console.log("Writing filteredSymbols");
+						    }
+						}); 
+						return newSymbols;
 					}
 				}
 			}
 		    // console.log(response.query.results);
 		});
-		total = i;
-	}
-	console.log(total);
+	  });
+		
+	});
+};
+
+function populateHistorical() {	
+	// select a symbol from database
+	// import historical data
 
 
+	var yahooData = require('yahoo-finance');
+	var now = new Date();
+	var dateFormat = require('dateformat');
+	var now = dateFormat(now, "isoDate");
 
-	// Loop through every symbol, throw shit into DB?
-	for (var i = 0; i < 0; i++) {
-		yahooData.historical({
-		  symbols: [SYMBOLS[i]],
+	var years = 5;
+	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
+
+	var q = 'SELECT * FROM symbols';
+
+	client.connect();
+
+    var query = client.query(q);
+
+    query.on('row', function(row) {
+    	yahooData.historical({
+		  symbols: [ row.symbol ],
 		  from: past,
 		  to: now, 
 		  period: 'd'
 		}, function (err, result) {
 		  if (err) { throw err; }
-			console.log(result);
-			// quotes = _.toArray(result);
-			// console.log(quotes);
-		  fs.writeFile("./private/data/" + SYMBOLS[i] + ".txt", result, function(err) {
-		    if(err) {
-		        console.log(err);
-		    } else {
-				// console.log("Completed writing symbols");
-		  //       console.log("The file was saved!");
-				console.log("File saved");
-		    }
-		}); 
+		  _.each(result, function (quotes, symbol) {
+		  	if (quotes[0]) {
+		  		console.log(quotes);
+		  		client.query("INSERT INTO historical VALUES ($1)", quotes, function(err, res) {
+		  			if (err) { console.log(err) };
+		  			console.log(res);
+		  		});
+		  		// for (var i = 0; i < quotes.length; i++) {
+			  		// console.log(quotes[i]);
+			  		// var nestedq = "INSERT INTO historical VALUES ($1)";
+					  	// "INSERT INTO historical (date, open, high, low, close, volume, adjClose, symbol)
+					  	//  VALUES ($1)", [quotes[i].date, quotes[i].open, result.high, result.low, result.volume, result.adjClose, result.symbol]);
+						
+		  		// }
+		  	}
+		  });
+		  
+		  
+
+		//   fs.writeFile("./private/data/" + SYMBOLS[i] + ".txt", result, function(err) {
+		//     if(err) {
+		//         console.log(err);
+		//     } else {
+		// 		// console.log("Completed writing symbols");
+		//   //       console.log("The file was saved!");
+		// 		console.log("File saved");
+		//     }
+		// }); 
 			  // console.log(result.stringify());
 		  	/*_.each(result, function (quotes, symbol) {
 		    console.log(util.format(
@@ -177,15 +245,14 @@ function loadYahooData(SYMBOLS,size) {
 		    }
 		  });*/
 		});
+	});
+	query.on('end', function() { 
+	  client.end();
+	});
+	// });
 
-	}
-
-	console.timeEnd('grab all symbols');
-	// console.log(yahooData);
+		
 };
-
-
-
 
 
 
