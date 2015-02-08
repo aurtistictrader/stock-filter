@@ -106,10 +106,10 @@ function loadYahooData(SYMBOLS,size) {
 			    }
 			    if (capstring != null) {
 				    var glico = marketCap * percentageChange;
-				    var 3monthvolume = parseInt(quote.AverageDailyVolume);
+				    var threemonthvolume = parseInt(quote.AverageDailyVolume);
 				    var price = parseFloat(quote.LastTradePriceOnly);
 
-				    if (glico > 500000 && 3monthvolume > 300000 && price > 2) {
+				    if (glico > 500000 && threemonthvolume > 300000 && price > 2) {
 				    	// COPY + PARSE INTO DATABASE
 
 				    	console.log(quote.symbol);
