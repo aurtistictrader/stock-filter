@@ -107,12 +107,12 @@ function searchAndFilter(response) {
 	var threeMonths = now.substr(0,5) + getMonth(parseInt(now.substr(5,7)) - 3) + now.substr(7);
 
 	var q = "SELECT symbol FROM symbols";
-	var yearHighQ = "SELECT max(close) as close FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
-	var yearLowQ = "SELECT min(close) as close FROM historical WHERE date >= '" + pastYear + "'";// symbol = '";
-	var fiveYearHighQ = "SELECT max(close) as close FROM historical WHERE date >= '" + pastFiveYear + "'";
-	var currClosePriceQ = "SELECT close FROM historical WHERE date <= '" + now + "'";
+	var yearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
+	var yearLowQ = "SELECT min(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '";
+	var fiveYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastFiveYear + "'";
+	var currClosePriceQ = "SELECT adjClose FROM historical WHERE date <= '" + now + "'";
 
-	var threeMonthHighLowQ = "SELECT (max(close) / min(close)) as close FROM historical WHERE date >= '" + threeMonths + "'";
+	var threeMonthHighLowQ = "SELECT (max(adjClose) / min(adjClose)) as adjClose FROM historical WHERE date >= '" + threeMonths + "'";
 	client.connect();
 	var newClient = new pg.Client("postgres://localhost:5432/finance"); 
 	newClient.connect();
@@ -120,26 +120,33 @@ function searchAndFilter(response) {
 	// query all syms
 	var generalq = client.query(q);
 	var output = "";
+	var csvoutput = "";
 	var count = 0;
 	generalq.on('row', function(symout) {
 		var nestedshit = 
-			newClient.query(yearLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res1) {
-		  			
+			newClient.query(yearLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res1) {	  			
 				newClient.query(yearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res2) {
 		  			newClient.query(fiveYearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
 			  			newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res4) {
 				  			newClient.query(threeMonthHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
 					  			newClient.query("SELECT count(*) FROM symbols ;", function(err, res6) {
 
-								    if ( 	(res1.rows[0].close < (res3.rows[0].close * 0.5)) && 
-								    		(1.40 < (res2.rows[0].close / res1.rows[0].close)) && 
-								    		(res1.rows[0].close < res4.rows[0].close) && 
-								    		(res4.rows[0].close < (res3.rows[0].close * 0.75)) &&
-								    		(res5.rows[0].close < 1.20)) {
+					  				// console.log(res1.rows[0].adjclose + " : " + res3.rows[0].adjclose);
+								    if ( 	(res1.rows[0].adjclose < (res3.rows[0].adjclose * 0.5)) && 
+								    		(1.40 < (res2.rows[0].adjclose / res1.rows[0].adjclose)) && 
+								    		(res1.rows[0].adjclose < res4.rows[0].adjclose) && 
+								    		(res4.rows[0].adjclose < (res3.rows[0].adjclose * 0.75)) &&
+								    		(res5.rows[0].adjclose < 1.20)
+								    		) {
 								    	potentialStocks.push(symout.symbol);
 								    	// console.log(potentialStocks);
 
 										output += symout.symbol + ", ";
+										csvoutput += symout.symbol + "\n";
+										// if (symout.symbol.trim() === 'AAPL') {
+										// 	console.log("current: " + res4.rows[0].adjClose);
+										// 	console.log("5 yr high: " + res3.rows[0].close);
+										// }
 									    // console.log(symout.symbol);
 								    }
 								    count ++;
@@ -148,6 +155,13 @@ function searchAndFilter(response) {
 								    	// console.log(output);
 
 								    	response.send(output.substr(0, output.length-1));
+							    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
+										    if(err) {
+										        console.log(err);
+										    } else {
+												console.log("Completed writing stocks!");
+										    }
+										});
 								    	newClient.end();
 								    	client.end();
 								    }
@@ -335,9 +349,10 @@ function populateHistorical() {
 
 	var years = 5;
 	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-
+	// var past = '2014-06-05';
+	// var next = '2014-06-10';
 	var q = 'SELECT * FROM symbols';
-
+	// var q = 'SELECT * FROM symbols WHERE symbol = \'AAPL\'';
 	var newClient = new pg.Client("postgres://localhost:5432/finance");
 	newClient.connect();
 	client.connect();
@@ -348,7 +363,8 @@ function populateHistorical() {
     	yahooData.historical({
 		  symbols: [ row.symbol ],
 		  from: past,
-		  to: now, 
+		  to: now,
+		  // to: next, 
 		  period: 'd'
 		}, function (err, result) {
 		  if (err) { throw err; }
@@ -369,6 +385,7 @@ function populateHistorical() {
 			  		// 	if (err) { console.log(err) };
 			  		// 	console.log("Inserted");
 			  		// });
+				// console.log(quotes);
 		  		var nestedq = "INSERT INTO historical (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
 		  		for (var i = 0; i < quotes.length; i++) {
 			  		// console.log(quotes[i]);
