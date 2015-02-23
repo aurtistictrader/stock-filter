@@ -18,6 +18,10 @@ app.set('port', (process.env.PORT || 5000))
 // app.set('port', (9001));
 app.use(express.static(__dirname + '/public'))
 
+/// Job of this is to add new data everyday
+app.get('/cron', function(request, response) {
+	
+});
 app.get('/cronny', function(request, response) {
   	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
 	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
@@ -88,12 +92,14 @@ app.listen(app.get('port'), function() {
 
 });
 
-function getMonth(monthValue) {
+function getYearMonth(yearValue, monthValue) {
 	if (monthValue <= 0) {
 		var temp = ("0" + (12 - (monthValue + 1)));
-		return temp.substr(temp.length-2);
+		temp = temp.substr(temp.length-2);
+		yearValue = yearValue - 1;
+		return yearValue + "-" + temp;
 	} else {
-		return ("0" + monthValue).substr(monthValue.length-2);
+		return yearValue + ("0" + monthValue).substr(monthValue.length-2);
 	}
 }
 function searchAndFilter(response) {
@@ -103,151 +109,124 @@ function searchAndFilter(response) {
 	var dateFormat = require('dateformat');
 	var now = dateFormat(now, "isoDate");
 	var pastYear = (parseInt(now.substr(0,4)) - 1) + now.substr(4);
+	var pastTwoYear = (parseInt(now.substr(0,4)) - 2) + now.substr(4);
 	var pastFiveYear = (parseInt(now.substr(0,4)) - 5) + now.substr(4);
-	var threeMonths = now.substr(0,5) + getMonth(parseInt(now.substr(5,7)) - 3) + now.substr(7);
+	var threeMonths = getYearMonth(parseInt(now.substr(0,4)), parseInt(now.substr(5,7)) - 3) + now.substr(7);
 
 	var q = "SELECT symbol FROM symbols";
-	var yearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
-	var yearLowQ = "SELECT min(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '";
-	var fiveYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastFiveYear + "'";
+	var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
+	// var yearLowQ = "SELECT min(adjClose) as adjClose, date FROM historical WHERE date >= '" + pastYear + "'";// symbol = '";
+	var fiveYearHighLowQ = "SELECT max(adjClose) as adjCloseH, min(adjClose) as adjCloseL FROM historical WHERE date >= '" + pastFiveYear + "'";
+	var fourYearHighLowQ = "SELECT max(adjClose) as adjCloseH, min(adjClose) as adjCloseL FROM historical WHERE date >= '" + pastFiveYear + "' AND date <= '" + pastTwoYear + "'";
 	var currClosePriceQ = "SELECT adjClose FROM historical WHERE date <= '" + now + "'";
 
-	var threeMonthHighLowQ = "SELECT (max(adjClose) / min(adjClose)) as adjClose FROM historical WHERE date >= '" + threeMonths + "'";
+	var threeMonthHighLowQ = "SELECT max(adjClose) as adjCloseH, min(adjClose) as adjCloseL FROM historical WHERE date >= '" + threeMonths + "'";
 	client.connect();
 	var newClient = new pg.Client("postgres://localhost:5432/finance"); 
 	newClient.connect();
 
+	var yearHighQ = "adjClose = (SELECT MAX(adjClose) as adjClose FROM historical where date >= '" + pastTwoYear + "' AND symbol='";
+	var yearLowQ = "adjCLose = (SELECT MIN(adjClose) as adjClose FROM historical where date >= '" + pastTwoYear + "' AND symbol='";
 	// query all syms
 	var generalq = client.query(q);
 	var output = "";
 	var csvoutput = "";
 	var count = 0;
+
+	var YQL = require('yql');
+
 	generalq.on('row', function(symout) {
 		var nestedshit = 
-			newClient.query(yearLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res1) {	  			
-				newClient.query(yearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res2) {
-		  			newClient.query(fiveYearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
+			newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearLowQ + symout.symbol + "');", function(err, res1) {	  			
+				newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearHighQ + symout.symbol + "');", function(err, res2) {
+		  			newClient.query(fourYearHighLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
 			  			newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res4) {
-				  			newClient.query(threeMonthHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
+				  			newClient.query(fiveYearHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
 					  			newClient.query("SELECT count(*) FROM symbols ;", function(err, res6) {
+					  				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
+						  				// console.log(res1.rows[0].adjclose + " : " + res3.rows[0].adjclose);
+										async(symout.symbol, function(results){
+										  	var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
+											query.exec(function (error, response) {
+												if (error) {
 
-					  				// console.log(res1.rows[0].adjclose + " : " + res3.rows[0].adjclose);
-								    if ( 	(res1.rows[0].adjclose < (res3.rows[0].adjclose * 0.5)) && 
-								    		(1.40 < (res2.rows[0].adjclose / res1.rows[0].adjclose)) && 
-								    		(res1.rows[0].adjclose < res4.rows[0].adjclose) && 
-								    		(res4.rows[0].adjclose < (res3.rows[0].adjclose * 0.75)) &&
-								    		(res5.rows[0].adjclose < 1.20)
-								    		) {
-								    	potentialStocks.push(symout.symbol);
-								    	// console.log(potentialStocks);
+												} else if (response.query.results != null) {
+												    var quote = response.query.results.row;
+												    var capstring = quote;
 
-										output += symout.symbol + ", ";
-										csvoutput += symout.symbol + "\n";
-										// if (symout.symbol.trim() === 'AAPL') {
-										// 	console.log("current: " + res4.rows[0].adjClose);
-										// 	console.log("5 yr high: " + res3.rows[0].close);
-										// }
-									    // console.log(symout.symbol);
-								    }
-								    count ++;
-								    // console.log(count + " : " + res6.rows[0].count);
-								    if (count == res6.rows[0].count) {
-								    	// console.log(output);
+												    if (capstring != null) {
+													    var percentagetwohundredMA = parseInt(capstring.col0.substr(0,capstring.col0.length-1));
 
-								    	response.send(output.substr(0, output.length-1));
-							    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
-										    if(err) {
-										        console.log(err);
-										    } else {
-												console.log("Completed writing stocks!");
-										    }
-										});
-								    	newClient.end();
-								    	client.end();
-								    }
+													    if (percentagetwohundredMA >= -5 && 
+													    	percentagetwohundredMA <= 40 ) {
+													    	// more conditions go here
+														    if ( 	
+													    		// For bull
+													    		// 50% increase
+													    		(res1.rows[0].adjclose * 1.5 < res2.rows[0].adjclose && 
+													    		 res1.rows[0].date < res2.rows[0].date	) &&
+													    		// 15% current price lower than 1 yr high
+													    		// (res4.rows[0].adjclose < res2.rows[0].adjclose * 0.85) &&
+													    		// // first 4 year high price * 1.3 > 1yearhigh
+													    		// (res3.rows[0].adjcloseh * 1.3 > res7.rows[0].adjclose )
+													    		(res7.rows[0].adjclosel < res4.rows[0].adjclose)
+																
+
+																// Bear
+																// half year instead of 1 year, 20-25 %
+																// (res1.rows[0].adjclose >= (res5.rows[0].adjcloseh - res5.rows[0].adjclosel)*0.7 + res5.rows[0].adjclosel) //&&
+																// (res5.rows[0].adjcloseh > 5 * res5.rows[0].adjclosel)
+
+													    		// (res1.rows[0].adjclose < (res3.rows[0].adjcloseh * 0.5)) && 
+													    		// (1.40 < (res2.rows[0].adjclose / res1.rows[0].adjclose)) && 
+													    		// (res3.rows[0].adjclosel < res4.rows[0].adjclose) && 
+													    		// (res4.rows[0].adjclose < (res3.rows[0].adjcloseh * 0.75)) &&
+													    		// ((res5.rows[0].adjcloseh / res5.rows[0].adjclosel) < 1.20) &&
+													    		// (res5.rows[0].adjclosel > res3.rows[0].adjclosel) &&
+													    		// (res1.rows[0].adjclose > res3.rows[0].adjclosel)
+													    		) {
+														    	potentialStocks.push(symout.symbol);
+															    console.log(symout.symbol);
+														    	// console.log(potentialStocks);
+
+																output += symout.symbol + ", ";
+																csvoutput += symout.symbol + "\n";
+																// if (symout.symbol.trim() === 'AAPL') {
+																// 	console.log("current: " + res4.rows[0].adjClose);
+																// 	console.log("5 yr high: " + res3.rows[0].close);
+																// }
+															    // console.log(symout.symbol);
+														    }
+														    count ++;
+														    // console.log(count + " : " + res6.rows[0].count);
+														    if (count == res6.rows[0].count) {
+														    	// console.log(count);
+
+														    	response.send(output.substr(0, output.length-1));
+													    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
+																    if(err) {
+																        console.log(err);
+																    } else {
+																		console.log("Completed writing stocks!");
+																    }
+																});
+														    	newClient.end();
+														    	client.end();
+														    }
+														}	
+													}
+												}
+											    // console.log(response.query.results);
+											});
+										  });
+									});
 					  			});
 					  		});	
 				  		});	
 			  		});	
 		  		});	
 			});
-			/*
-	    var oneyrlow = 
-	    	newClient.query(yearLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res) {
-		  			if (err) { console.log(err) };
-					// console.log("Inserted Symbol: " + quotes[0].symbol);
-					// console.log(res.rows[0].close);
-					// oneyrlow = res.rows[0];
-		  		});	
-	    var oneyrhigh = 
-	    	newClient.query(yearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res) {
-		  			if (err) { console.log(err) };
-					// console.log("Inserted Symbol: " + quotes[0].symbol);
-					// console.log(res.rows[0].close);
-		  		});	
-	    	
-    	var fiveyearhigh = 
-	    	newClient.query(fiveYearHighQ + " AND symbol = '" + symout.symbol + " ';", function(err, res) {
-		  			if (err) { console.log(err) };
-					// console.log("Inserted Symbol: " + quotes[0].symbol);
-					// console.log(res.rows[0].close);
-		  		});	
-	    	
-	    var currClosePrice = 
-	    	newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res) {
-		  			if (err) { console.log(err) };
-					// console.log("Inserted Symbol: " + quotes[0].symbol);
-					// console.log(res.rows[0].close);
-		  		});	
-    	var threeMonthHighLow = 
-	    	newClient.query(threeMonthHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res) {
-		  			if (err) { console.log(err) };
-					// console.log("Inserted Symbol: " + quotes[0].symbol);
-					// console.log(res.rows[0].close);
-		  		});	
-*/
-	    // var oneyrhigh = newClient.query(yearHighQ + " AND symbol = " + symout.symbol + " ");
-	    // var fiveyearhigh = newClient.query(fiveYearHighQ + " AND symbol = " + symout.symbol + " ");
-	    // var currClosePrice = newClient.query(currClosePriceQ + " AND symbol = " + symout.symbol + " ");
-	    // var threeMonthHighLow = newClient.query(threeMonthHighLowQ + "AND symbol = " + symout.symbol + " ");
-	    // newClient.query('')
-	    // console.log(yearLowQ + " AND symbol = '" + symout.symbol + " ';");
-	    // console.log(symout.symbol);
-	    // console.log(oneyrlow);
-	    // console.log(oneyrhigh);
-	    // console.log(fiveyearhigh);
-	    // console.log(currClosePrice);
-	    // console.log(threeMonthHighLow);
-	    /*
-	    if ( 	(oneyrlow.close < (fiveyearhigh.close * 0.5)) && 
-	    		(1.40 < (oneyrhigh.close / oneyrlow.close)) && 
-	    		(oneyrlow.close < currClosePrice.close) && 
-	    		(currClosePrice.close < (fiveyearhigh.close * 0.75)) &&
-	    		(threeMonthHighLow.close < 1.20)) {
-	    	potentialStocks.push(symout.symbol);
-		    console.log(symout.symbol);
-	    }*/
 	});
-
-	// newClient.on('end', function() {
-	// 	console.log("Closed client");
-	// 	newClient.end();
-	// });
-    // query.on('row', function(){
-
-    // });
-    // generalq.on('end', function() {
-    // 	console.log("Ended parse");
-
-    // 	for (var i = 0; i < potentialStocks.length; i++) {
-    // 		console.log(potentialStocks[i]);
-    // 		output += potentialStocks[i] + "\n";
-    // 	}
-    // 	console.log(potentialStocks);
-    // 	// return output;
-
-    // 	// client.end();
-    // });
 };
 
 // TODO
@@ -305,7 +284,7 @@ function loadYahooData(SYMBOLS) {
 				    var threemonthvolume = parseInt(quote.AverageDailyVolume);
 				    var price = parseFloat(quote.LastTradePriceOnly);
 
-				    if (glico > 500000 && threemonthvolume > 300000 && price > 2) {
+				    if (glico > 500000 && threemonthvolume > 500000 && price > 2) {
 				    	// remove from SYMBOLS
 				    	newSymbols.push(SYMBOL);
 				    	console.log(SYMBOL);
