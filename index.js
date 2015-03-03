@@ -41,33 +41,14 @@ app.get('/cronny', function(request, response) {
 	  	tracker++;
 	  	if (line.substr(0,1) === "Y") {
 	    	var bar = line.substr(2,line.length).indexOf("|");
-	    	// symbols.push("'" + line.substr(2, bar) + "'"); 
 	    	symbols.push(line.substr(2, bar));
 	    	stringsymbols += line.substr(2,bar) + "\n"; 
 	    }
 	    if(tracker === lines.length ) {
-	      // final(symbols);
-	      // write file and load yahoo stuff
-	      	// var filteredSymbols = loadYahooData(symbols);
-		    // console.log(symbols.length + " : " + (lines.length-4));
-		 //  	fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
-			//     if(err) {
-			//         console.log(err);
-			//     } else {
-			// 		console.log("Completed writing symbols");
-			//         console.log("The file was saved!");
-			//     }
-			// }); 
-			// console.log("running");
 	      	var stuff = loadYahooData(symbols);
-	      	// console.log(stuff);
 	    }
-	    // console.log(symbols.length + " : " + lines.length-4);
 	  })
 	});
-
-	// console.log(symbols);
-	
 });
 
 
@@ -215,7 +196,7 @@ function searchAndFilter(response) {
 														    }
 														}	
 													}
-												}
+											 	}
 											    // console.log(response.query.results);
 											});
 										  });
@@ -247,7 +228,6 @@ function populateSymbols() {
 };
 
 function async(arg, callback) {
-  // console.log('do something with \''+arg+'\', return 1 sec later');
   setTimeout(function() { callback(arg); }, 10);
 };
 
@@ -273,11 +253,9 @@ function loadYahooData(SYMBOLS) {
 			    	
 			    } else if ( capstring.indexOf("M") > 0) {
 			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
-			    	// console.log(marketCap);
 
 			    } else if ( capstring.indexOf("B") > 0) {
 			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
-			    	// console.log(marketCap);
 			    }
 			    if (capstring != null) {
 				    var glico = marketCap * percentageChange;
@@ -291,10 +269,8 @@ function loadYahooData(SYMBOLS) {
 				    	stringsymbols+= SYMBOL + "\n";
 					} else {
 
-						// console.log("Not meeting requirements");
 					}
 
-					// console.log(SYMBOL);
 					console.log(SYMBOLS.length + " : " + tracker);
 					if (SYMBOLS.length === tracker ) {
 						console.log("FINISHED PARSING ALL");
@@ -309,7 +285,6 @@ function loadYahooData(SYMBOLS) {
 					}
 				}
 			}
-		    // console.log(response.query.results);
 		});
 	  });
 		
@@ -319,7 +294,6 @@ function loadYahooData(SYMBOLS) {
 function populateHistorical() {	
 	// select a symbol from database
 	// import historical data
-
 
 	var yahooData = require('yahoo-finance');
 	var now = new Date();
