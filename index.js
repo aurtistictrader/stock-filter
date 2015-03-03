@@ -117,6 +117,9 @@ function searchAndFilter(response) {
 	var YQL = require('yql');
 
 	generalq.on('row', function(symout) {
+		// TODO: Find a way to make this look better, but still query needed values.
+		// Maybe use a really long query string with all the different values
+		// Make sure to avoid performance blocks (stupid joins, etc) since we already indexed
 		var nestedshit = 
 			newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearLowQ + symout.symbol + "');", function(err, res1) {	  			
 				newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearHighQ + symout.symbol + "');", function(err, res2) {
@@ -125,8 +128,8 @@ function searchAndFilter(response) {
 				  			newClient.query(fiveYearHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
 					  			newClient.query("SELECT count(*) FROM symbols ;", function(err, res6) {
 					  				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
-						  				// console.log(res1.rows[0].adjclose + " : " + res3.rows[0].adjclose);
 										async(symout.symbol, function(results){
+											// TODO: Include this data directly insides the database, instead of here.
 										  	var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
 											query.exec(function (error, response) {
 												if (error) {
@@ -141,6 +144,9 @@ function searchAndFilter(response) {
 													    if (percentagetwohundredMA >= -5 && 
 													    	percentagetwohundredMA <= 40 ) {
 													    	// more conditions go here
+													    	// TODO: Setup an easy method for meeting condiitions 
+													    	// Probably consider writing a function that takes in parameters, changing conditions on them
+													    	// This way, it is also possible to do some dynamic adjustments based on user preferences
 														    if ( 	
 													    		// For bull
 													    		// 50% increase
@@ -168,21 +174,12 @@ function searchAndFilter(response) {
 													    		) {
 														    	potentialStocks.push(symout.symbol);
 															    console.log(symout.symbol);
-														    	// console.log(potentialStocks);
 
 																output += symout.symbol + ", ";
 																csvoutput += symout.symbol + "\n";
-																// if (symout.symbol.trim() === 'AAPL') {
-																// 	console.log("current: " + res4.rows[0].adjClose);
-																// 	console.log("5 yr high: " + res3.rows[0].close);
-																// }
-															    // console.log(symout.symbol);
 														    }
 														    count ++;
-														    // console.log(count + " : " + res6.rows[0].count);
 														    if (count == res6.rows[0].count) {
-														    	// console.log(count);
-
 														    	response.send(output.substr(0, output.length-1));
 													    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
 																    if(err) {
@@ -197,7 +194,6 @@ function searchAndFilter(response) {
 														}	
 													}
 											 	}
-											    // console.log(response.query.results);
 											});
 										  });
 									});
@@ -211,6 +207,7 @@ function searchAndFilter(response) {
 };
 
 // TODO
+// This should query the database and insert data for new dates
 function populateDifference() {
 
 };
@@ -323,22 +320,6 @@ function populateHistorical() {
 		  if (err) { throw err; }
 		  _.each(result, function (quotes, symbol) {
 		  	if (quotes[0]) {
-		  		// for (var i = 0; i < quotes.length; i++) {
-			  		// var date = "'" + quotes[i].date + "'";
-			  		// var open = quotes[i].open;
-			  		// var high = quotes[i].high;
-			  		// var low = quotes[i].low;
-			  		// var volume = quotes[i].volume;
-			  		// var adjClose = "'" + quotes[i].adjClose + "'";
-			  		// var symbol = "'" + quotes[i].symbol + "'";
-			  	// 	console.log(stuff);
-		  		// }
-			  		// var nestedq = "INSERT INTO historical VALUES ($1)";
-		  			// var newQ = client.query(nestedq, quotes, function(err, res) {
-			  		// 	if (err) { console.log(err) };
-			  		// 	console.log("Inserted");
-			  		// });
-				// console.log(quotes);
 		  		var nestedq = "INSERT INTO historical (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
 		  		for (var i = 0; i < quotes.length; i++) {
 			  		// console.log(quotes[i]);
@@ -350,12 +331,8 @@ function populateHistorical() {
 						} else {
 							nestedq += "'" + inp[j] + "', ";
 						}
-						// console.log(nestedq);
 					}
-					// nestedq.substr(0,nestedq.length-2);
 					nestedq +=" ), "
-					// var inp = [date, open, high, low, volume, adjClose, symbol];
-			  		// console.log(inp);
 		  		}
 				var newQ = newClient.query(nestedq.substr(0,nestedq.length-2) + ";", function(err, res) {
 		  			if (err) { console.log(nestedq.substr(0,nestedq.length-2)) };
@@ -364,46 +341,6 @@ function populateHistorical() {
 		  		});
 		  	}
 		  });
-		  
-		  
-
-		//   fs.writeFile("./private/data/" + SYMBOLS[i] + ".txt", result, function(err) {
-		//     if(err) {
-		//         console.log(err);
-		//     } else {
-		// 		// console.log("Completed writing symbols");
-		//   //       console.log("The file was saved!");
-		// 		console.log("File saved");
-		//     }
-		// }); 
-			  // console.log(result.stringify());
-		  	/*_.each(result, function (quotes, symbol) {
-		    console.log(util.format(
-		      '=== %s (%d) ===',
-		      symbol,
-		      quotes.length
-		    ).cyan);
-		    if (quotes[0]) {
-		      // console.log(
-		      //   '%s\n...\n%s',
-		      //   JSON.stringify(quotes[0], null, 2),
-		      //   JSON.stringify(quotes[quotes.length - 1], null, 2)
-		      // );
-
-		  	// console.log(quotes);
-  		//         fs.writeFile("./private/data/" + SYMBOLS[i] + ".json", quotes[0], function(err) {
-				//     if(err) {
-				//         console.log(err);
-				//     } else {
-				// 		console.log("Completed writing symbols");
-				//         console.log("The file was saved!");
-				//     }
-				// }); 
-				// console.log("File saved");
-		    } else {
-		      console.log('N/A');
-		    }
-		  });*/
 		});
 	});
 	newClient.on('end', function(){
@@ -413,9 +350,6 @@ function populateHistorical() {
 	query.on('end', function() { 
 	  client.end();
 	});
-	// });
-
-		
 };
 
 
