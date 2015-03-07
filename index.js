@@ -209,7 +209,65 @@ function searchAndFilter(response) {
 // TODO
 // This should query the database and insert data for new dates
 function populateDifference() {
+	client.connect();
+	var newClient = new pg.Client("postgres://localhost:5432/finance"); 
+	newClient.connect();
 
+	// Grabs most recent date
+	var symbolsQuery = 'SELECT * FROM symbols';
+	var mostRecentDateQuery = 'SELECT date FROM historical ORDER BY date DESC LIMIT 1';
+
+	var yahooData = require('yahoo-finance');
+	var now = new Date();
+	var dateFormat = require('dateformat');
+	var now = dateFormat(now, "isoDate");
+
+	client.query(mostRecentDateQuery).on('row', function(date) {
+		console.log(date);
+		// Check if date is current, if NOT, query and make up the difference
+		if (date < now) {
+			client.query(symbolsQuery).on('row', function(row) {
+		    	yahooData.historical({
+				  symbols: [ row.symbol ],
+				  from: date,
+				  to: now,
+				  // to: next, 
+				  period: 'd'
+				}, function (err, result) {
+				  if (err) { throw err; }
+				  _.each(result, function (quotes, symbol) {
+				  	if (quotes[0]) {
+				  		var nestedq = "INSERT INTO historical (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
+				  		for (var i = 0; i < quotes.length; i++) {
+					  		// console.log(quotes[i]);
+							var inp = [dateFormat(quotes[i].date, "isoDate"), quotes[i].open, quotes[i].high, quotes[i].low, quotes[i].close, quotes[i].volume, quotes[i].adjClose, quotes[i].symbol];
+							nestedq += " ( "
+							for (var j = 0; j < inp.length; j++) {
+								if (j+1 == inp.length) {
+									nestedq += "'" + inp[j] + "'";
+								} else {
+									nestedq += "'" + inp[j] + "', ";
+								}
+							}
+							nestedq +=" ), "
+				  		}
+						var newQ = newClient.query(nestedq.substr(0,nestedq.length-2) + ";", function(err, res) {
+				  			if (err) { console.log(nestedq.substr(0,nestedq.length-2)) };
+							console.log("Inserted Symbol: " + quotes[0].symbol);
+				  		});
+				  	}
+				  });
+				});
+			});
+		}
+	}		 
+	newClient.on('end', function(){
+		console.log("DONE");
+		newClient.end();
+	});
+	query.on('end', function() { 
+	  client.end();
+	});
 };
 
 function populateSymbols() {
