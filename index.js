@@ -224,10 +224,11 @@ function populateDifference() {
 	var dateFormat = require('dateformat');
 	var now = dateFormat(now, "isoDate");
 
-	client.query(mostRecentDateQuery).on('row', function(date) {
-		console.log(date);
+	client.query(mostRecentDateQuery).on('row', function(row) {
 		// Check if date is current, if NOT, query and make up the difference
-		if (date < now) {
+		var lastDate = dateFormat(row.date, "isoDate");
+		if (lastDate < now) {
+			console.log("UPDATING WITH NEWER DATA");
 			client.query(symbolsQuery).on('row', function(row) {
 		    	yahooData.historical({
 				  symbols: [ row.symbol ],
@@ -266,9 +267,6 @@ function populateDifference() {
 	newClient.on('end', function(){
 		console.log("DONE");
 		newClient.end();
-	});
-	query.on('end', function() { 
-	  client.end();
 	});
 };
 
