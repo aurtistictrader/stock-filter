@@ -62,8 +62,10 @@ app.get('/', function(request, response) {
 
   // parse and output for now, later make it downloadable
 
-  var resp = searchAndFilter(response);
+  // var resp = searchAndFilter(response);
   // response.send(resp);
+
+  populateDifference();
 
 
 });
@@ -260,7 +262,7 @@ function populateDifference() {
 				});
 			});
 		}
-	}		 
+	});		 
 	newClient.on('end', function(){
 		console.log("DONE");
 		newClient.end();
