@@ -232,7 +232,7 @@ function populateDifference() {
 			client.query(symbolsQuery).on('row', function(row) {
 		    	yahooData.historical({
 				  symbols: [ row.symbol ],
-				  from: date,
+				  from: lastDate,
 				  to: now,
 				  // to: next, 
 				  period: 'd'
