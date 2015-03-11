@@ -15,13 +15,9 @@ conString = "postgres://localhost:5432/finance";
 client = new pg.Client(conString);
 
 app.set('port', (process.env.PORT || 5000))
-// app.set('port', (9001));
 app.use(express.static(__dirname + '/public'))
 
-/// Job of this is to add new data everyday
-app.get('/cron', function(request, response) {
-	
-});
+// This updates the nasdaq symbols in the market
 app.get('/cronny', function(request, response) {
   	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
 	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
@@ -65,7 +61,6 @@ app.get('/', function(request, response) {
   // var resp = searchAndFilter(response);
   // response.send(resp);
 
-  populateDifference();
 
 
 });
@@ -85,6 +80,8 @@ function getYearMonth(yearValue, monthValue) {
 		return yearValue + ("0" + monthValue).substr(monthValue.length-2);
 	}
 }
+
+
 function searchAndFilter(response) {
 	var potentialStocks = [];
 
@@ -208,8 +205,8 @@ function searchAndFilter(response) {
 	});
 };
 
-// TODO
-// This should query the database and insert data for new dates
+// This function populates the database depending on the difference in days
+// This should be run Daily
 function populateDifference() {
 	client.connect();
 	var newClient = new pg.Client("postgres://localhost:5432/finance"); 
@@ -270,6 +267,7 @@ function populateDifference() {
 	});
 };
 
+// manually populates all of the symbols needed 
 function populateSymbols() {
 	var q = 'COPY symbols FROM \'/Users/chengpeng123/Documents/finance-app/private/manualsymbols.csv\' WITH CSV;';
 
@@ -282,10 +280,12 @@ function populateSymbols() {
 	});
 };
 
+// Custom async function
 function async(arg, callback) {
   setTimeout(function() { callback(arg); }, 10);
 };
 
+// Takes a list of symbols, and queries data from Yahoo website
 function loadYahooData(SYMBOLS) {
 	var YQL = require('yql');
 	var newSymbols = [];
@@ -346,6 +346,7 @@ function loadYahooData(SYMBOLS) {
 	});
 };
 
+// This only populates all of the historical data from 5 years ago, only needs to be ran once to populate database.
 function populateHistorical() {	
 	// select a symbol from database
 	// import historical data
@@ -357,10 +358,7 @@ function populateHistorical() {
 
 	var years = 5;
 	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-	// var past = '2014-06-05';
-	// var next = '2014-06-10';
 	var q = 'SELECT * FROM symbols';
-	// var q = 'SELECT * FROM symbols WHERE symbol = \'AAPL\'';
 	var newClient = new pg.Client("postgres://localhost:5432/finance");
 	newClient.connect();
 	client.connect();
@@ -372,7 +370,6 @@ function populateHistorical() {
 		  symbols: [ row.symbol ],
 		  from: past,
 		  to: now,
-		  // to: next, 
 		  period: 'd'
 		}, function (err, result) {
 		  if (err) { throw err; }
@@ -410,7 +407,8 @@ function populateHistorical() {
 	});
 };
 
-
+// Sets interval to populate difference, and update database (should be done daily)
+setInterval(populateDifference, console.log("Updated DB!"), 24 * 60 * 60 * 1000);
 
 
 
