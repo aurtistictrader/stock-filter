@@ -15,6 +15,7 @@ conString = "postgres://localhost:5432/finance";
 client = new pg.Client(conString);
 
 app.set('port', (process.env.PORT || 5000))
+
 app.use(express.static(__dirname + '/public'))
 
 // This updates the nasdaq symbols in the market
@@ -58,8 +59,8 @@ app.get('/', function(request, response) {
 
   // parse and output for now, later make it downloadable
 
-  // var resp = searchAndFilter(response);
-  // response.send(resp);
+  var resp = searchAndFilter(response);
+  response.send(resp);
 
 
 
@@ -93,8 +94,9 @@ function searchAndFilter(response) {
 	var pastFiveYear = (parseInt(now.substr(0,4)) - 5) + now.substr(4);
 	var threeMonths = getYearMonth(parseInt(now.substr(0,4)), parseInt(now.substr(5,7)) - 3) + now.substr(7);
 
-	var q = "SELECT symbol FROM symbols";
+	var q = "SELECT DISTINCT symbol FROM symbols";
 	var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
+	// var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastTwoYear + "'";// symbol = '"
 	// var yearLowQ = "SELECT min(adjClose) as adjClose, date FROM historical WHERE date >= '" + pastYear + "'";// symbol = '";
 	var fiveYearHighLowQ = "SELECT max(adjClose) as adjCloseH, min(adjClose) as adjCloseL FROM historical WHERE date >= '" + pastFiveYear + "'";
 	var fourYearHighLowQ = "SELECT max(adjClose) as adjCloseH, min(adjClose) as adjCloseL FROM historical WHERE date >= '" + pastFiveYear + "' AND date <= '" + pastTwoYear + "'";
@@ -125,27 +127,34 @@ function searchAndFilter(response) {
 		  			newClient.query(fourYearHighLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
 			  			newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res4) {
 				  			newClient.query(fiveYearHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
-					  			newClient.query("SELECT count(*) FROM symbols ;", function(err, res6) {
+					  			newClient.query("SELECT count(DISTINCT symbol) FROM symbols ;", function(err, res6) {
 					  				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
 										async(symout.symbol, function(results){
 											// TODO: Include this data directly insides the database, instead of here.
 										  	var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
+
 											query.exec(function (error, response) {
 												if (error) {
-
+													console.log("YQL Query Error");
+													count++;
 												} else if (response.query.results != null) {
 												    var quote = response.query.results.row;
 												    var capstring = quote;
 
 												    if (capstring != null) {
 													    var percentagetwohundredMA = parseInt(capstring.col0.substr(0,capstring.col0.length-1));
-
 													    if (percentagetwohundredMA >= -5 && 
 													    	percentagetwohundredMA <= 40 ) {
 													    	// more conditions go here
 													    	// TODO: Setup an easy method for meeting condiitions 
 													    	// Probably consider writing a function that takes in parameters, changing conditions on them
 													    	// This way, it is also possible to do some dynamic adjustments based on user preferences
+														    // if res7.rows[0].adjclose < res4.rows[0].adjclose {
+														    // 	console.log("True: " + res7.rows[0].adjclose + " < " + res4.rows[0].adjclose)
+														    // }
+														    // console.log("True: " + res7.rows[0].adjclose + " < " + res4.rows[0].adjclose)
+														    
+
 														    if ( 	
 													    		// For bull
 													    		// 50% increase
@@ -153,9 +162,9 @@ function searchAndFilter(response) {
 													    		 res1.rows[0].date < res2.rows[0].date	) &&
 													    		// 15% current price lower than 1 yr high
 													    		// (res4.rows[0].adjclose < res2.rows[0].adjclose * 0.85) &&
-													    		// // first 4 year high price * 1.3 > 1yearhigh
-													    		// (res3.rows[0].adjcloseh * 1.3 > res7.rows[0].adjclose )
-													    		(res7.rows[0].adjclosel < res4.rows[0].adjclose)
+													    		// first 4 year high price * 1.3 > 1yearhigh
+													    		(res3.rows[0].adjcloseh * 1.3 > res7.rows[0].adjclose ) &&
+													    		(res3.rows[0].adjclosel < res4.rows[0].adjclose)
 																
 
 																// Bear
@@ -179,7 +188,7 @@ function searchAndFilter(response) {
 														    }
 														    count ++;
 														    if (count == res6.rows[0].count) {
-														    	response.send(output.substr(0, output.length-1));
+														    	// response.send(output.substr(0, output.length-1));
 													    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
 																    if(err) {
 																        console.log(err);
@@ -189,9 +198,19 @@ function searchAndFilter(response) {
 																});
 														    	newClient.end();
 														    	client.end();
+														    	return output;
 														    }
+														} else {
+															count++;
 														}	
+													} else {
+														console.log("CAPSTINRG IS NULL FOR: " + symout.symbol.trim());
+														count++;
 													}
+
+											 	} else {
+											 		console.log("Symbol is null: " + symout.symbol.trim());
+											 		count++;
 											 	}
 											});
 										  });
@@ -208,6 +227,7 @@ function searchAndFilter(response) {
 // This function populates the database depending on the difference in days
 // This should be run Daily
 function populateDifference() {
+
 	client.connect();
 	var newClient = new pg.Client("postgres://localhost:5432/finance"); 
 	newClient.connect();
@@ -408,8 +428,6 @@ function populateHistorical() {
 };
 
 // Sets interval to populate difference, and update database (should be done daily)
-setInterval(populateDifference, console.log("Updated DB!"), 24 * 60 * 60 * 1000);
-
-
+setInterval(populateDifference,  24 * 60 * 60 * 1000);
 
 
