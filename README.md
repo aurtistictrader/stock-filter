@@ -1,5 +1,5 @@
-# finance-app
-Grabs and parses data using nasdaq and yahoo api. Does custom interactions and calculations.
+# Stock-filter
+Grabs and parses data using nasdaq and yahoo api. Information is stored in a database and this also does custom interactions and calculations.
 
 #License
 The MIT License (MIT)
