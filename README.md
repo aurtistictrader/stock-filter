@@ -1,6 +1,11 @@
 # Stock-filter
 Grabs and parses data using nasdaq and yahoo api. Information is stored in a database and this also does custom interactions and calculations.
 
+# Details 
+Currently hardcoded to do long term bottom up - with data from the last 5 yrs.
+Uses Percentage Change From 200-day Moving Average to calculate current price feasibility.
+Then checks for bull market signals within the last year, with the combination of a strong support over the last 5 years.
+
 #License
 The MIT License (MIT)
 

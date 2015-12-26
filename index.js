@@ -6,6 +6,7 @@ var stream = require('stream');
 var readline = require('readline');
 var util = require('util');
 var _ = require('lodash');
+var async = require('async');
 require('colors');
 
 var pg = require('pg');
@@ -93,7 +94,6 @@ function searchAndFilter(response) {
 	var pastTwoYear = (parseInt(now.substr(0,4)) - 2) + now.substr(4);
 	var pastFiveYear = (parseInt(now.substr(0,4)) - 5) + now.substr(4);
 	var threeMonths = getYearMonth(parseInt(now.substr(0,4)), parseInt(now.substr(5,7)) - 3) + now.substr(7);
-	console.log(pastTwoYear);
 	var q = "SELECT DISTINCT symbol FROM symbols";
 	var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
 	// var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastTwoYear + "'";// symbol = '"
@@ -116,11 +116,174 @@ function searchAndFilter(response) {
 	var count = 0;
 
 	var YQL = require('yql');
+	
+	generalq.on('row', function(symout) {
 
+		async.parallel({
+		    res1: function(callback) {
+		    	// console.log("res1");
+		    	newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" 
+		    		+ symout.symbol + " ' AND " + yearLowQ + symout.symbol + "');", function(err, res1) {
+		        	callback(null, res1);
+		    	});
+		    },
+		    res2: function(callback) {
+		    	// console.log("res2");
+				newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" 
+					+ symout.symbol + " ' AND " + yearHighQ + symout.symbol + "');", function(err, res2) {
+		        	callback(null, res2);
+				});
+		    },
+		    res3: function(callback) {
+		    	// console.log("res3");
+				newClient.query(fourYearHighLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
+		        	callback(null, res3);
+				});
+		    },
+		    res4: function(callback) {		
+		    	// console.log("res4");	  			
+		    	newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res4) {    	
+			        callback(null, res4);
+			    });
+		    },
+		    res5: function(callback) {
+		    	// console.log("res5");
+				newClient.query(fiveYearHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
+		        	callback(null, res5);
+				});
+		    },
+		    res6: function(callback) {
+		    	// console.log("res6");
+				newClient.query("SELECT count(DISTINCT symbol) FROM symbols ;", function(err, res6) {
+		        	callback(null, res6);
+				});
+		    },
+		    res7: function(callback) {
+		    	// console.log("res7");
+				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
+		        	callback(null, res7);
+				});
+		    },
+		    response: function(callback) {
+				var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
+				query.exec(function (error, response) {
+					callback(null, response);
+				});
+		    }
+		}, function (err, result) {
+			var res1 = result.res1;
+			var res2 = result.res2;
+			var res3 = result.res3;
+			var res4 = result.res4;
+			var res5 = result.res5;
+			var res6 = result.res6;
+			var res7 = result.res7;
+			var response = result.response;
+
+			// custom_async(symout.symbol, function(results){
+				// TODO: Include this data directly insides the database, instead of here.
+				// YQL API: https://greenido.wordpress.com/2009/12/22/yahoo-finance-hidden-api/
+				// var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
+
+				// query.exec(function (error, response) {
+					// if (error) {
+					// 	console.log("YQL Query Error");
+					// 	count++;
+					// } else 
+					if (response === null) {
+						console.log("YQL Query Error");
+						count++;
+					} else if (response.query.results != null) {
+					    var quote = response.query.results.row;
+					    var capstring = quote;
+
+					    if (capstring != null) {
+					    	// This is the change between the current price and the 200 day moving average 
+						    var percentagetwohundredMA = parseInt(capstring.col0.substr(0,capstring.col0.length-1));
+						    if (percentagetwohundredMA >= -5 && 
+						    	percentagetwohundredMA <= 40 ) {
+						    	// more conditions go here
+						    	// TODO: Setup an easy method for meeting condiitions 
+						    	// Probably consider writing a function that takes in parameters, changing conditions on them
+						    	// This way, it is also possible to do some dynamic adjustments based on user preferences
+							    // if res7.rows[0].adjclose < res4.rows[0].adjclose {
+							    // 	console.log("True: " + res7.rows[0].adjclose + " < " + res4.rows[0].adjclose)
+							    // }
+							    // console.log("True: " + res7.rows[0].adjclose + " < " + res4.rows[0].adjclose)
+							    
+								if (typeof res1.rows[0] != 'undefined' 
+									&& res2.rows[0] != 'undefined'
+									&& res3.rows[0] != 'undefined'
+									&& res4.rows[0] != 'undefined'
+									&& res7.rows[0] != 'undefined')
+
+							    if ( 	
+						    		// For bull
+						    		// 50% increase from one year low to one year high
+						    		(res1.rows[0].adjclose * 1.5 < res2.rows[0].adjclose && 
+						    		 res1.rows[0].date < res2.rows[0].date	) &&
+						    		// 15% current price lower than 1 yr high
+						    		// (res4.rows[0].adjclose < res2.rows[0].adjclose * 0.85) &&
+						    		// first 4 year high price * 1.3 > 1yearhigh
+						    		(res3.rows[0].adjcloseh * 1.3 > res7.rows[0].adjclose ) &&
+						    		(res3.rows[0].adjclosel < res4.rows[0].adjclose)
+									
+
+									// Bear
+									// half year instead of 1 year, 20-25 %
+									// (res1.rows[0].adjclose >= (res5.rows[0].adjcloseh - res5.rows[0].adjclosel)*0.7 + res5.rows[0].adjclosel) //&&
+									// (res5.rows[0].adjcloseh > 5 * res5.rows[0].adjclosel)
+
+						    		// (res1.rows[0].adjclose < (res3.rows[0].adjcloseh * 0.5)) && 
+						    		// (1.40 < (res2.rows[0].adjclose / res1.rows[0].adjclose)) && 
+						    		// (res3.rows[0].adjclosel < res4.rows[0].adjclose) && 
+						    		// (res4.rows[0].adjclose < (res3.rows[0].adjcloseh * 0.75)) &&
+						    		// ((res5.rows[0].adjcloseh / res5.rows[0].adjclosel) < 1.20) &&
+						    		// (res5.rows[0].adjclosel > res3.rows[0].adjclosel) &&
+						    		// (res1.rows[0].adjclose > res3.rows[0].adjclosel)
+						    		) {
+							    	potentialStocks.push(symout.symbol);
+								    console.log(symout.symbol);
+
+									output += symout.symbol + ", ";
+									csvoutput += symout.symbol + "\n";
+							    }
+							    count ++;
+							    if (count == res6.rows[0].count) {
+							    	// response.send(output.substr(0, output.length-1));
+						    	 	fs.writeFile("./private/pickedstocks.csv", csvoutput, function(err) {
+									    if(err) {
+									        console.log(err);
+									    } else {
+											console.log("Completed writing stocks!");
+									    }
+									});
+							    	newClient.end();
+							    	client.end();
+							    	return output;
+							    }
+							} else {
+								count++;
+							}	
+						} else {
+							console.log("CAPSTINRG IS NULL FOR: " + symout.symbol.trim());
+							count++;
+						}
+
+				 	} else {
+				 		console.log("Symbol is null: " + symout.symbol.trim());
+				 		count++;
+				 	}
+				// });
+			// });
+		});
+	});
+/*
 	generalq.on('row', function(symout) {
 		// TODO: Find a way to make this look better, but still query needed values.
 		// Maybe use a really long query string with all the different values
 		// Make sure to avoid performance blocks (stupid joins, etc) since we already indexed
+
 		var nestedshit = 
 			newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearLowQ + symout.symbol + "');", function(err, res1) {	  			
 			// newClient.query("SELECT adjClose, date FROM historical WHERE symbol = 'KNL' AND adjCLose = (SELECT MIN(adjClose) as adjClose FROM historical where date >= '2011-12-23' AND symbol='KNL');", function(err, res1) {	  			
@@ -235,7 +398,7 @@ function searchAndFilter(response) {
 			  		});	
 		  		});	
 			});
-	});
+	});*/
 };
 
 // This function populates the database depending on the difference in days
