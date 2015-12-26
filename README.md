@@ -6,7 +6,10 @@ Currently hardcoded to do long term bottom up - with data from the last 5 yrs.
 Uses Percentage Change From 200-day Moving Average to calculate current price feasibility.
 Then checks for bull market signals within the last year, with the combination of a strong support over the last 5 years.
 
-#License
+# Yahoo api details
+https://greenido.wordpress.com/2009/12/22/yahoo-finance-hidden-api/
+
+# License
 The MIT License (MIT)
 
 Copyright (c) 2015 Cheng Peng
