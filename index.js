@@ -19,7 +19,7 @@ app.set('port', (process.env.PORT || 5000))
 
 app.use(express.static(__dirname + '/public'))
 
-// This updates the nasdaq symbols in the market and stores them in a csv file for use
+// This updates the nasdaq symbols in the market and stores them in a csv file for use later
 app.get('/update_nasdaq_symbols', function(request, response) {
   	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
 	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
@@ -58,17 +58,12 @@ app.get('/', function(request, response) {
   // populateDifference(); // makes up for database difference and current day pricing
 
   // parse and output for now, later make it downloadable
-
   var resp = searchAndFilter(response);
   response.send(resp);
-
-
-
 });
 
 app.listen(app.get('port'), function() {
   	console.log("Node app is running at localhost:" + app.get('port'))
-
 });
 
 function getYearMonth(yearValue, monthValue) {
