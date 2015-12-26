@@ -34,7 +34,7 @@ app.get('/update_nasdaq_symbols', function(request, response) {
 	var tracker = 0;
 	var stringsymbols = "";
 	lines.forEach(function(line) {
-	  async(line, function(){
+	  custom_async(line, function(){
 	  	tracker++;
 	  	if (line.substr(0,1) === "Y") {
 	    	var bar = line.substr(2,line.length).indexOf("|");
@@ -137,7 +137,7 @@ function searchAndFilter(response) {
 					  				// console.log('res6');
 					  				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
 					  					// console.log('res7');
-										async(symout.symbol, function(results){
+										custom_async(symout.symbol, function(results){
 											// TODO: Include this data directly insides the database, instead of here.
 											// YQL API: https://greenido.wordpress.com/2009/12/22/yahoo-finance-hidden-api/
 
@@ -315,7 +315,7 @@ function populateSymbols() {
 };
 
 // Custom async function
-function async(arg, callback) {
+function custom_async(arg, callback) {
   setTimeout(function() { callback(arg); }, 10);
 };
 
@@ -326,7 +326,7 @@ function loadYahooData(SYMBOLS) {
 	var tracker = 0;
 	var stringsymbols = "";
 	SYMBOLS.forEach(function(SYMBOL) {
-	  async(SYMBOL, function(results){
+	  custom_async(SYMBOL, function(results){
 	  	var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOL + '\'');
 		query.exec(function (error, response) {
 		  	tracker++;
