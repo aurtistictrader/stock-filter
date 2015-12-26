@@ -371,29 +371,32 @@ function loadYahooData(SYMBOLS) {
 			    if (capstring == null) {
 			    	
 			    } else if ( capstring.indexOf("M") > 0) {
+			    	// Convert million to thousands
 			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
-
 			    } else if ( capstring.indexOf("B") > 0) {
+			    	// Convert billion to thousands
 			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
 			    }
+
 			    if (capstring != null) {
 				    var glico = marketCap * percentageChange;
-				    var threemonthvolume = parseInt(quote.AverageDailyVolume);
-				    var price = parseFloat(quote.LastTradePriceOnly);
+				    var threemonthvolume = parseInt(quote.AverageDailyVolume); 
+				    var price = parseFloat(quote.LastTradePriceOnly); // Ensures non-toxic stocks
 
+				    // Check for market cap at least 500 mill, at least 50000 average volume
 				    if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
 				    	// remove from SYMBOLS
 				    	newSymbols.push(SYMBOL);
 				    	console.log(SYMBOL);
-				    	stringsymbols+= SYMBOL + "\n";
-					} else {
-
+				    	stringSymbols += SYMBOL + "\n";
 					}
 
+					// Tracks progress
 					console.log(SYMBOLS.length + " : " + tracker);
+					
 					if (SYMBOLS.length === tracker ) {
 						console.log("FINISHED PARSING ALL");
-						fs.writeFile("./private/nasdaqsymbols.csv", stringsymbols, function(err) {
+						fs.writeFile("./private/nasdaqsymbols.csv", stringSymbols, function(err) {
 						    if(err) {
 						        console.log(err);
 						    } else {
@@ -422,7 +425,7 @@ function populateHistorical() {
 
 	var years = 5;
 	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-	var q = 'SELECT * FROM symbols where symbol > \'ZLTQ\'';
+	var q = 'SELECT * FROM symbols';
 	var newClient = new pg.Client("postgres://localhost:5432/finance");
 	newClient.connect();
 	client.connect();
