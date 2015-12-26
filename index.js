@@ -18,8 +18,8 @@ app.set('port', (process.env.PORT || 5000))
 
 app.use(express.static(__dirname + '/public'))
 
-// This updates the nasdaq symbols in the market
-app.get('/cronny', function(request, response) {
+// This updates the nasdaq symbols in the market and stores them in a csv file for use
+app.get('/update_nasdaq_symbols', function(request, response) {
   	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
 	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
 		if (err) {
@@ -47,7 +47,6 @@ app.get('/cronny', function(request, response) {
 	  })
 	});
 });
-
 
 app.get('/', function(request, response) {
   // response.send('This lists current stock symbols with given criteria');
@@ -84,6 +83,7 @@ function getYearMonth(yearValue, monthValue) {
 
 
 function searchAndFilter(response) {
+	// Current strategy: LONG TERM BOTTOM UP
 	var potentialStocks = [];
 
 	var now = new Date();
@@ -93,7 +93,7 @@ function searchAndFilter(response) {
 	var pastTwoYear = (parseInt(now.substr(0,4)) - 2) + now.substr(4);
 	var pastFiveYear = (parseInt(now.substr(0,4)) - 5) + now.substr(4);
 	var threeMonths = getYearMonth(parseInt(now.substr(0,4)), parseInt(now.substr(5,7)) - 3) + now.substr(7);
-
+	console.log(pastTwoYear);
 	var q = "SELECT DISTINCT symbol FROM symbols";
 	var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastYear + "'";// symbol = '"
 	// var oneYearHighQ = "SELECT max(adjClose) as adjClose FROM historical WHERE date >= '" + pastTwoYear + "'";// symbol = '"
@@ -108,7 +108,7 @@ function searchAndFilter(response) {
 	newClient.connect();
 
 	var yearHighQ = "adjClose = (SELECT MAX(adjClose) as adjClose FROM historical where date >= '" + pastTwoYear + "' AND symbol='";
-	var yearLowQ = "adjCLose = (SELECT MIN(adjClose) as adjClose FROM historical where date >= '" + pastTwoYear + "' AND symbol='";
+	var yearLowQ = "adjClose = (SELECT MIN(adjClose) as adjClose FROM historical where date >= '" + pastTwoYear + "' AND symbol='";
 	// query all syms
 	var generalq = client.query(q);
 	var output = "";
@@ -123,25 +123,39 @@ function searchAndFilter(response) {
 		// Make sure to avoid performance blocks (stupid joins, etc) since we already indexed
 		var nestedshit = 
 			newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearLowQ + symout.symbol + "');", function(err, res1) {	  			
+			// newClient.query("SELECT adjClose, date FROM historical WHERE symbol = 'KNL' AND adjCLose = (SELECT MIN(adjClose) as adjClose FROM historical where date >= '2011-12-23' AND symbol='KNL');", function(err, res1) {	  			
+				console.log('res1');
 				newClient.query("SELECT adjClose, date FROM historical WHERE symbol = '" + symout.symbol + " ' AND " + yearHighQ + symout.symbol + "');", function(err, res2) {
+		  			console.log('res2');
 		  			newClient.query(fourYearHighLowQ + " AND symbol = '" + symout.symbol + " ';", function(err, res3) {
+			  			// console.log('res3');
 			  			newClient.query(currClosePriceQ + " AND symbol = '" + symout.symbol + "' ORDER BY date DESC LIMIT 1;", function(err, res4) {
+				  			// console.log('res4');
 				  			newClient.query(fiveYearHighLowQ + " AND symbol = '" + symout.symbol+ " ';", function(err, res5) {
+					  			// console.log('res5');
 					  			newClient.query("SELECT count(DISTINCT symbol) FROM symbols ;", function(err, res6) {
+					  				// console.log('res6');
 					  				newClient.query(oneYearHighQ + " AND symbol = '"  + symout.symbol + " ';", function(err, res7) {
+					  					// console.log('res7');
 										async(symout.symbol, function(results){
 											// TODO: Include this data directly insides the database, instead of here.
+											// YQL API: https://greenido.wordpress.com/2009/12/22/yahoo-finance-hidden-api/
+
+											console.log("before query init");
 										  	var query = new YQL("select * from csv where url='http://download.finance.yahoo.com/d/quotes.csv?s=" + symout.symbol.trim() + '&f=m6\'');
 
+											console.log("after query init");
 											query.exec(function (error, response) {
 												if (error) {
 													console.log("YQL Query Error");
 													count++;
 												} else if (response.query.results != null) {
 												    var quote = response.query.results.row;
+	    											console.log("after query, not null");
 												    var capstring = quote;
 
 												    if (capstring != null) {
+												    	// This is the change between the current price and the 200 day moving average 
 													    var percentagetwohundredMA = parseInt(capstring.col0.substr(0,capstring.col0.length-1));
 													    if (percentagetwohundredMA >= -5 && 
 													    	percentagetwohundredMA <= 40 ) {
@@ -157,7 +171,7 @@ function searchAndFilter(response) {
 
 														    if ( 	
 													    		// For bull
-													    		// 50% increase
+													    		// 50% increase from one year low to one year high
 													    		(res1.rows[0].adjclose * 1.5 < res2.rows[0].adjclose && 
 													    		 res1.rows[0].date < res2.rows[0].date	) &&
 													    		// 15% current price lower than 1 yr high
@@ -213,7 +227,7 @@ function searchAndFilter(response) {
 											 		count++;
 											 	}
 											});
-										  });
+										});
 									});
 					  			});
 					  		});	
@@ -287,7 +301,7 @@ function populateDifference() {
 	});
 };
 
-// manually populates all of the symbols needed 
+// manually populates all of the symbols from the csv into the database
 function populateSymbols() {
 	var q = 'COPY symbols FROM \'/Users/chengpeng123/Documents/finance-app/private/manualsymbols.csv\' WITH CSV;';
 
@@ -337,7 +351,7 @@ function loadYahooData(SYMBOLS) {
 				    var threemonthvolume = parseInt(quote.AverageDailyVolume);
 				    var price = parseFloat(quote.LastTradePriceOnly);
 
-				    if (glico > 500000 && threemonthvolume > 500000 && price > 2) {
+				    if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
 				    	// remove from SYMBOLS
 				    	newSymbols.push(SYMBOL);
 				    	console.log(SYMBOL);
@@ -378,7 +392,7 @@ function populateHistorical() {
 
 	var years = 5;
 	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-	var q = 'SELECT * FROM symbols';
+	var q = 'SELECT * FROM symbols where symbol > \'ZLTQ\'';
 	var newClient = new pg.Client("postgres://localhost:5432/finance");
 	newClient.connect();
 	client.connect();
@@ -426,8 +440,4 @@ function populateHistorical() {
 	  client.end();
 	});
 };
-
-// Sets interval to populate difference, and update database (should be done daily)
-setInterval(populateDifference,  24 * 60 * 60 * 1000);
-
 
