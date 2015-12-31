@@ -21,33 +21,251 @@ app.use(express.static(__dirname + '/public'))
 
 // This updates the nasdaq symbols in the market and stores them in a csv file for use later
 app.get('/update_nasdaq_symbols', function(request, response) {
-  	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
-	ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
-		if (err) {
-	        console.error(err);
-	    } else {
-			console.log('File download at ' + res);
-	    }
-	});
-	var symbols = [];
-	var data = fs.readFileSync('./private/nasdaqtraded.txt','utf-8');
-	var lines = data.split("\n");
-	var tracker = 0;
-	var stringsymbols = "";
-	lines.forEach(function(line) {
-	  custom_async(line, function(){
-	  	tracker++;
-	  	if (line.substr(0,1) === "Y") {
-	    	var bar = line.substr(2,line.length).indexOf("|");
-	    	symbols.push(line.substr(2, bar));
-	    	stringsymbols += line.substr(2,bar) + "\n"; 
-	    }
-	    if(tracker === lines.length ) {
-	      	var stuff = loadYahooData(symbols);
-	    }
-	  })
-	});
+	updateSymbols();
+ //  	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
+	// ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
+	// 	if (err) {
+	//         console.error(err);
+	//     } else {
+	// 		console.log('File download at ' + res);
+	//     }
+	// });
+	// var symbols = [];
+	// var data = fs.readFileSync('./private/nasdaqtraded.txt','utf-8');
+	// var lines = data.split("\n");
+	// var tracker = 0;
+	// var stringsymbols = "";
+	// lines.forEach(function(line) {
+	//   custom_async(line, function(){
+	//   	tracker++;
+	//   	if (line.substr(0,1) === "Y") {
+	//     	var bar = line.substr(2,line.length).indexOf("|");
+	//     	symbols.push(line.substr(2, bar));
+	//     	stringsymbols += line.substr(2,bar) + "\n"; 
+	//     }
+	//     if(tracker === lines.length ) {
+	//       	// var stuff = loadYahooData(symbols);
+	//     }
+	//   })
+	// });
 });
+
+/** Reduce a large array by a given factor.
+  */
+var reduceArray = function(array, factor) {
+	var newArray = [];
+	for (var i = 0; i < array.length; i+=factor) {
+		if (i + factor >= array.length) {
+			var nextArray = array.slice(i, array.length);
+			newArray.push(nextArray);		
+		} else {
+			var nextArray = array.slice(i, i + factor);
+			newArray.push(nextArray);	
+		}
+	}
+
+	return newArray;
+}
+
+/** Flattens an array of arrays.
+  */
+var flattenArray = function(array) {
+	var merged = [].concat.apply([], array);
+	return merged;
+}
+
+/** Filter a symbol if it's undefined.
+  */
+var removeUndefined = function(string, callback) {
+	if (typeof string == 'undefined' || string === undefined) {
+		return callback(false);
+	} 
+	callback(true);
+};
+
+/** Formats a symbol based on nasdaq trading stocks.
+  */
+var formatSymbol = function(nasdaqLine, callback) {
+	if (nasdaqLine.substr(0,1) === "Y") {
+		var bar = nasdaqLine.substr(2,nasdaqLine.length).indexOf("|");
+		return callback(null, nasdaqLine.substr(2, bar));
+	}
+	callback();
+};
+
+/** Filters a quote object with volume, market cap, and price restraints. 
+  */
+var basicRestraints = function(quote, callback) {
+    // var percentageChange = parseFloat(quote.YearLow) / parseFloat(quote.LastTradePriceOnly);
+    var marketCap;
+    var capstring = quote.MarketCapitalization;
+
+    if (capstring == null) {
+    	
+    } else if ( capstring.indexOf("M") > 0) {
+    	// Convert million to thousands
+    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
+    } else if ( capstring.indexOf("B") > 0) {
+    	// Convert billion to thousands
+    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
+    }
+
+    if (capstring != null) {
+	    // var glico = marketCap * percentageChange;
+	    var threemonthvolume = parseInt(quote.AverageDailyVolume); 
+	    var price = parseFloat(quote.LastTradePriceOnly); // Ensures non-toxic stocks
+
+	    // Check for market cap at least 500 mill, at least 50000 average volume
+	    if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
+	    	return callback(true);
+		}
+	}
+
+	return callback(false);
+}
+
+/** Filters an array of symbols based on custom requirements, using YQL.
+  * Some requirements include volume minimum, and fair price. 
+  */
+var filterSymbols = function(symbols, callback) {
+	var YQL = require('yql');
+
+	custom_async(symbols, function(results) {
+	  	var queryString = 'select * from yahoo.finance.quote where symbol in (';
+  		for (var i = 0; i < symbols.length-1; i++) {
+  			queryString += '"' + symbols[i] + '",';
+  		}
+  		queryString += '"' + symbols[symbols.length-1] + '")';
+
+	  	var query = new YQL(queryString);
+		query.exec(function (error, response) {
+			if (error) {
+				console.log("Error when filtering symbol: " + symbols + ", " + error);
+				if (error.message.indexOf('ETIMEDOUT') > 0 || error.message.indexOf('ENOTFOUND') > 0 || error.message.indexOf('ECONNRESET') > 0) {
+					return filterSymbol(symbols, callback);
+				}
+				return callback();
+			} else if (response.query.results != null) {
+			    var quotes = response.query.results.quote;
+
+			    async.filter(quotes, basicRestraints, function(result) {
+			    	if (result) {
+			    		console.log(result);
+						return callback(null, result);	
+			    	} else {
+			    		return callback();
+			    	}
+			    });
+
+			    // var percentageChange = parseFloat(quote.YearLow) / parseFloat(quote.LastTradePriceOnly);
+			 //    var marketCap;
+			 //    var capstring = quote.MarketCapitalization;
+
+			 //    if (capstring == null) {
+			    	
+			 //    } else if ( capstring.indexOf("M") > 0) {
+			 //    	// Convert million to thousands
+			 //    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
+			 //    } else if ( capstring.indexOf("B") > 0) {
+			 //    	// Convert billion to thousands
+			 //    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
+			 //    }
+
+			 //    if (capstring != null) {
+				//     // var glico = marketCap * percentageChange;
+				//     var threemonthvolume = parseInt(quote.AverageDailyVolume); 
+				//     var price = parseFloat(quote.LastTradePriceOnly); // Ensures non-toxic stocks
+
+				//     // Check for market cap at least 500 mill, at least 50000 average volume
+				//     if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
+				//     	console.log(symbol);
+				// 		return callback(null, symbol);
+				// 	}
+				// }
+			}
+		});
+	});
+};
+
+function updateSymbols() {	
+	async.series({
+		download: function(callback) {
+			var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
+			ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
+				if (err) {
+			        console.error(err);
+			    } else {
+					console.log('File download at ' + res);
+			   		return callback(null, '');
+			    }
+			});
+		},
+		symbols: function(callback) {
+			var data = fs.readFileSync('./private/nasdaqtraded.txt','utf-8');
+			var lines = data.split("\n");
+			
+			async.waterfall([
+				function(callback) {
+					async.map(lines, formatSymbol, function(err, result) {
+						if (err) {
+							console.log('error in formating symbols: ' + err);
+						}
+						return callback(err, result);
+					});	
+				},
+				function(symbols, callback) {
+					async.filter(symbols, removeUndefined, function(result) {
+						return callback(null, result);
+					});	
+				}
+			], function (err, results) {
+				if (err) {
+					console.log(err);
+				}
+
+				var newArray = reduceArray(results, 20);
+				async.mapSeries(newArray, filterSymbols, function(err, result) {
+					if (err) {
+						console.log('error in filtering symbols: ' + err);
+					}
+
+
+					// result = flattenArray(result);
+					// console.log(result);
+					// async.waterfall([
+					// 	function(callback) {
+					// 		var stringSymbols = "";
+					// 		for (var i = 0; i < result; i++) {
+					// 			symbols += result[i];
+					// 		}
+					// 		callback(symbols);
+					// 	},
+					// 	function(symbols, callback) {
+					// 		fs.writeFile("./private/manualsymbols.csv", symbols, function(err) {
+					// 		    if (err) {
+					// 		        console.log(err);
+					// 		    } else {
+					// 				console.log("Finished writing symbols");
+					// 				callback(symbols);
+					// 		    }
+					// 		}); 
+					// 	}
+					// ], function (err, result) {
+					// 	if (err) {
+					// 		console.log(err);
+					// 	}
+
+					// 	populateSymbols(); // Stores into database
+					// });
+				});	
+			});
+		}
+	}, function (err, results) {
+		if (err) {
+			console.log(err);
+		}
+	});
+};
 
 app.get('/', function(request, response) {
   // response.send('This lists current stock symbols with given criteria');
@@ -58,8 +276,8 @@ app.get('/', function(request, response) {
   // populateDifference(); // makes up for database difference and current day pricing
 
   // parse and output for now, later make it downloadable
-  var resp = searchAndFilter(response);
-  response.send(resp);
+  // var resp = searchAndFilter(response);
+  // response.send(resp);
 });
 
 app.listen(app.get('port'), function() {
