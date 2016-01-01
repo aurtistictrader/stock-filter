@@ -22,32 +22,6 @@ app.use(express.static(__dirname + '/public'))
 // This updates the nasdaq symbols in the market and stores them in a csv file for use later
 app.get('/update_nasdaq_symbols', function(request, response) {
 	updateSymbols();
- //  	var url = 'ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqtraded.txt';
-	// ftp.get(url, 'private/nasdaqtraded.txt', function (err, res) {
-	// 	if (err) {
-	//         console.error(err);
-	//     } else {
-	// 		console.log('File download at ' + res);
-	//     }
-	// });
-	// var symbols = [];
-	// var data = fs.readFileSync('./private/nasdaqtraded.txt','utf-8');
-	// var lines = data.split("\n");
-	// var tracker = 0;
-	// var stringsymbols = "";
-	// lines.forEach(function(line) {
-	//   custom_async(line, function(){
-	//   	tracker++;
-	//   	if (line.substr(0,1) === "Y") {
-	//     	var bar = line.substr(2,line.length).indexOf("|");
-	//     	symbols.push(line.substr(2, bar));
-	//     	stringsymbols += line.substr(2,bar) + "\n"; 
-	//     }
-	//     if(tracker === lines.length ) {
-	//       	// var stuff = loadYahooData(symbols);
-	//     }
-	//   })
-	// });
 });
 
 /** Reduce a large array by a given factor.
@@ -89,6 +63,15 @@ var formatSymbol = function(nasdaqLine, callback) {
 	if (nasdaqLine.substr(0,1) === "Y") {
 		var bar = nasdaqLine.substr(2,nasdaqLine.length).indexOf("|");
 		return callback(null, nasdaqLine.substr(2, bar));
+	}
+	callback();
+};
+
+/** Simply grabs the symbol value from a quote object 
+  */
+var quoteToSymbol = function(quote, callback) {
+	if (quote) {
+		return callback(null, quote.symbol);
 	}
 	callback();
 };
@@ -142,7 +125,7 @@ var filterSymbols = function(symbols, callback) {
 			if (error) {
 				console.log("Error when filtering symbol: " + symbols + ", " + error);
 				if (error.message.indexOf('ETIMEDOUT') > 0 || error.message.indexOf('ENOTFOUND') > 0 || error.message.indexOf('ECONNRESET') > 0) {
-					return filterSymbol(symbols, callback);
+					return filterSymbols(symbols, callback);
 				}
 				return callback();
 			} else if (response.query.results != null) {
@@ -150,38 +133,12 @@ var filterSymbols = function(symbols, callback) {
 
 			    async.filter(quotes, basicRestraints, function(result) {
 			    	if (result) {
-			    		console.log(result);
+			    		console.log("Filtered");
 						return callback(null, result);	
 			    	} else {
 			    		return callback();
 			    	}
 			    });
-
-			    // var percentageChange = parseFloat(quote.YearLow) / parseFloat(quote.LastTradePriceOnly);
-			 //    var marketCap;
-			 //    var capstring = quote.MarketCapitalization;
-
-			 //    if (capstring == null) {
-			    	
-			 //    } else if ( capstring.indexOf("M") > 0) {
-			 //    	// Convert million to thousands
-			 //    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
-			 //    } else if ( capstring.indexOf("B") > 0) {
-			 //    	// Convert billion to thousands
-			 //    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
-			 //    }
-
-			 //    if (capstring != null) {
-				//     // var glico = marketCap * percentageChange;
-				//     var threemonthvolume = parseInt(quote.AverageDailyVolume); 
-				//     var price = parseFloat(quote.LastTradePriceOnly); // Ensures non-toxic stocks
-
-				//     // Check for market cap at least 500 mill, at least 50000 average volume
-				//     if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
-				//     	console.log(symbol);
-				// 		return callback(null, symbol);
-				// 	}
-				// }
 			}
 		});
 	});
@@ -215,6 +172,7 @@ function updateSymbols() {
 				},
 				function(symbols, callback) {
 					async.filter(symbols, removeUndefined, function(result) {
+						console.log("Finished formatting symbols.");
 						return callback(null, result);
 					});	
 				}
@@ -224,39 +182,45 @@ function updateSymbols() {
 				}
 
 				var newArray = reduceArray(results, 20);
+
 				async.mapSeries(newArray, filterSymbols, function(err, result) {
 					if (err) {
 						console.log('error in filtering symbols: ' + err);
 					}
 
+					newResult = flattenArray(result);
+					
+					console.log("Finished obtaining data");
+					async.waterfall([
+						function(callback) {
+							async.map(newResult, quoteToSymbol, function(err, symbols) {
+								callback(null, symbols);
+							});
+						},
+						function(symbols, callback) {
+							var symbolString = "";
+							for (var i = 0; i < symbols.length; i++) {
+								symbolString += symbols[i] + '\n';
+							}
+							callback(null, symbolString);
+						},
+						function(symbolString, callback) {
+							fs.writeFile("./private/manualsymbols.csv", symbolString, function(err) {
+							    if (err) {
+							        console.log(err);
+							    } else {
+									console.log("Finished writing symbols to file.");
+							    }
+							}); 
+							callback();
+						}
+					], function (err, result) {
+						if (err) {
+							console.log(err);
+						}
 
-					// result = flattenArray(result);
-					// console.log(result);
-					// async.waterfall([
-					// 	function(callback) {
-					// 		var stringSymbols = "";
-					// 		for (var i = 0; i < result; i++) {
-					// 			symbols += result[i];
-					// 		}
-					// 		callback(symbols);
-					// 	},
-					// 	function(symbols, callback) {
-					// 		fs.writeFile("./private/manualsymbols.csv", symbols, function(err) {
-					// 		    if (err) {
-					// 		        console.log(err);
-					// 		    } else {
-					// 				console.log("Finished writing symbols");
-					// 				callback(symbols);
-					// 		    }
-					// 		}); 
-					// 	}
-					// ], function (err, result) {
-					// 	if (err) {
-					// 		console.log(err);
-					// 	}
-
-					// 	populateSymbols(); // Stores into database
-					// });
+						populateSymbols(); // Stores into database
+					});
 				});	
 			});
 		}
@@ -557,73 +521,11 @@ function populateSymbols() {
 	});
 };
 
-// Custom async function
+/** Custom async function
+  * @Deprecated
+  */ 
 function custom_async(arg, callback) {
   setTimeout(function() { callback(arg); }, 10);
-};
-
-// Takes a list of symbols, and queries data from Yahoo website
-function loadYahooData(SYMBOLS) {
-	var YQL = require('yql');
-	var newSymbols = [];
-	var tracker = 0;
-	var stringsymbols = "";
-	SYMBOLS.forEach(function(SYMBOL) {
-	  custom_async(SYMBOL, function(results){
-	  	var query = new YQL('select * from yahoo.finance.quote where symbol = \'' + SYMBOL + '\'');
-		query.exec(function (error, response) {
-		  	tracker++;
-			if (error) {
-
-			} else if (response.query.results != null) {
-			    var quote = response.query.results.quote;
-			    var percentageChange = parseFloat(quote.YearLow) / parseFloat(quote.LastTradePriceOnly);
-			    var marketCap;
-			    var capstring = quote.MarketCapitalization;
-
-			    if (capstring == null) {
-			    	
-			    } else if ( capstring.indexOf("M") > 0) {
-			    	// Convert million to thousands
-			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000;
-			    } else if ( capstring.indexOf("B") > 0) {
-			    	// Convert billion to thousands
-			    	marketCap = parseFloat(capstring.substring(0, capstring.length-2)) * 1000000;
-			    }
-
-			    if (capstring != null) {
-				    var glico = marketCap * percentageChange;
-				    var threemonthvolume = parseInt(quote.AverageDailyVolume); 
-				    var price = parseFloat(quote.LastTradePriceOnly); // Ensures non-toxic stocks
-
-				    // Check for market cap at least 500 mill, at least 50000 average volume
-				    if (marketCap > 500000 && threemonthvolume > 50000 && price > 2) {
-				    	// remove from SYMBOLS
-				    	newSymbols.push(SYMBOL);
-				    	console.log(SYMBOL);
-				    	stringSymbols += SYMBOL + "\n";
-					}
-
-					// Tracks progress
-					console.log(SYMBOLS.length + " : " + tracker);
-					
-					if (SYMBOLS.length === tracker ) {
-						console.log("FINISHED PARSING ALL");
-						fs.writeFile("./private/nasdaqsymbols.csv", stringSymbols, function(err) {
-						    if(err) {
-						        console.log(err);
-						    } else {
-								console.log("Writing filteredSymbols");
-						    }
-						}); 
-						return newSymbols;
-					}
-				}
-			}
-		});
-	  });
-		
-	});
 };
 
 // This only populates all of the historical data from 5 years ago, only needs to be ran once to populate database.
