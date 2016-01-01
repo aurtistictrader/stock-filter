@@ -239,6 +239,8 @@ app.get('/', function(request, response) {
 
   // populateDifference(); // makes up for database difference and current day pricing
 
+  	filterByMovingAverage(); // Search stocks based on ma
+
   // parse and output for now, later make it downloadable
   // var resp = searchAndFilter(response);
   // response.send(resp);
@@ -259,76 +261,87 @@ function getYearMonth(yearValue, monthValue) {
 	}
 }
 
-var calculateMovingAverage = function(maType, symbol) {
+var calculateMovingAverage = function(maTypeSymbol, callback) {
+	var maType = maTypeSymbol.maType;
+	var symbol = maTypeSymbol.symbol;
 	var q = 
-		"WITH NumberedRows
-		AS
-		(
-			SELECT  rta.adjclose, rta.date, row_number() OVER (ORDER BY rta.date ASC) AS RowNumber
-			FROM    historical_weekly rta
-			WHERE   rta.symbol = '" + symbol + "'
-		)
+		"WITH NumberedRows " +
+		"AS ( " +
+			"SELECT  rta.adjclose, rta.date, row_number() OVER (ORDER BY rta.date ASC) AS RowNumber " +
+			"FROM    historical_weekly rta " +
+			"WHERE   rta.symbol = '" + symbol + "' " +
+		") " +
 
-		SELECT  nr.date, nr.adjclose,
-			CASE
-				WHEN nr.RowNumber <= " + maType + " THEN NULL
-				ELSE (	SELECT	avg(adjclose)
-				FROM	NumberedRows
-				WHERE	RowNumber <= nr.RowNumber
-				AND 	RowNumber >= nr.RowNumber - " + maType +  "
-			)
-			END AS MovingAverage
-		FROM    NumberedRows nr
-		ORDER BY date DESC";
-
+		"SELECT  nr.date, nr.adjclose, " +
+			"CASE " + 
+				"WHEN nr.RowNumber <= " + maType + " THEN NULL " +
+				"ELSE (	SELECT	avg(adjclose) " +
+				"FROM	NumberedRows " + 
+				"WHERE	RowNumber <= nr.RowNumber " +
+				"AND 	RowNumber >= nr.RowNumber - " + maType +  " " + 
+			") " +
+			"END AS MovingAverage " +
+		"FROM    NumberedRows nr " +
+		"ORDER BY date DESC";
 
 	client.query(q, function(err, result) {
 		if (err) { console.log(err); }
 
+		async.map(result.rows, formatMovingAverageFromDatabase, function(err, result) {
+			if (err) { console.log(err); }
+			callback(null, result);
+		});
 	});
 };
 
 function filterByMovingAverage() {
 	var settings = getMovingAverageSettings();
 
-	var q = "SELECT DISTINCT symbol FROM symbols";
+	var q = "SELECT DISTINCT symbol FROM symbols LIMIT 1";
 
-	client.query(q, function(err, result) {
-		if (err) { console.log(err); }
-
-		async.map(result.rows[0], formatSymbolsFromDatabase, function(err, symbols) {
-			var pickedSymbols = [];
-
-			console.log("Calculating... " + symbol);
-			async.each(symbols, function(symbol, callback) {	
-				async.waterfall([
-					function(callback) {
-						var maAverages = [];
-						for (var i = 0; i < settings.maTypes.length; i++) {
-							var ma = calculateMovingAverage(maType, symbol);
-							maAverages.push(ma);
-						}
-						callback(null, maAverages);		
-					},
-					function(maAverages, callback) {
-						var maDiffs = calculateDifferences(maAverages, symbol);
-						callback(null, maDiffs);
-					}
-				], function(err, result) {
-					if (err) { console.log(err); }
-					
-					var symbol = hasReasonableDifferences(result);
-					if (symbol) {
-						pickedSymbols.push(symbol);
-						console.log("picked: " + symbol);
-					}
-				});			
-				callback();
+	client.connect();
+	
+	async.waterfall([
+		function(callback) {
+			client.query(q, function(err, result) {
+				if (err) { console.log(err); }	
+				callback(null, result.rows);
 			});
+		},
+		function(rows, callback) {
+			async.map(rows, formatSymbolsFromDatabase, function(err, symbols) {
+				var pickedSymbols = [];
 
-			return pickedSymbols;
-		};
-	});
+				async.each(symbols, function(symbol, callback) {	
+					console.log("Calculating... " + symbol);
+					var newMaSymbol = [];
+					for (var i = 0; i < settings.maTypes.length; i++) {
+						newMaSymbol.push({ maType: settings.maTypes[i], symbol: symbol });
+					}
+
+					async.map(newMaSymbol, calculateMovingAverage, function(err, results) {
+						if (err) {
+							console.log(err);	
+						} 
+						console.log(results);
+					});
+					// 	// function(maAverages, callback) {
+					// 	// 	var maDiffs = calculateDifferences(maAverages, symbol);
+					// 	// 	callback(null, maDiffs);
+					// 	// }
+
+					// 	// var symbol = hasReasonableDifferences(result);
+					// 	// if (symbol) {
+					// 	// 	pickedSymbols.push(symbol);
+					// 	// 	console.log("picked: " + symbol);
+					// 	// }
+					callback();
+				});
+
+				callback(null, pickedSymbols);
+			});
+		}
+	]);		
 };
 
 /** Calculates moving averages based on table, time period, startDate
@@ -339,6 +352,7 @@ function getMovingAverageSettings() {
 	var dateFormat = require('dateformat');
 	var endDate = dateFormat(startDate, "isoDate");
 
+	var years = 10;
 	var startDate = (parseInt(endDate.substr(0,4)) - years) + endDate.substr(4);
 
 	return {
@@ -670,13 +684,19 @@ var populateHistoricalData = function(symbolArray, callback) {
 	});
 };
 
+/* Grabs database symbol object and simplifies into moving average value
+ */
+var formatMovingAverageFromDatabase = function(movingAverageData, callback) {
+	callback(null, movingAverageData.movingaverage);
+};
+
 /* Grabs database symbol object and simplifies into trimmed symbol
  */
 var formatSymbolsFromDatabase = function(symbolData, callback) {
 	callback(null, symbolData.symbol.trim());
 };
 
-/* Grabs database symbol object and simplifies into trimmed symbol
+/* Grabs database symbol object and simplifies into adjclose data
  */
 var formatAdjcloseFromDatabase = function(adjcloseData, callback) {
 	callback(null, adjcloseData.adjclose);
