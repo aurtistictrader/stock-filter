@@ -13,6 +13,18 @@ CREATE TABLE historical(
 	volume 		integer NOT NULL
 );
 
+CREATE TABLE historical_weekly (
+	symbol 		char(10) REFERENCES symbols,
+	date 		date NOT NULL,
+	open 		real NOT NULL,
+	high 		real NOT NULL,
+	low 		real NOT NULL,
+	close 		real NOT NULL,
+	adjClose 	real NOT NULL,
+	volume 		integer NOT NULL
+);
+
+
 CREATE TABLE historical_wiki(
 	symbol 		char(10),
 	date 		date,
