@@ -235,7 +235,7 @@ app.get('/', function(request, response) {
   // response.send('This lists current stock symbols with given criteria');
 
   // populateSymbols(); // used for coping manual symbols to db
-  // populateHistorical(); // gets all historical data
+  populateHistorical(); // gets all historical data
 
   // populateDifference(); // makes up for database difference and current day pricing
 
@@ -528,70 +528,118 @@ function custom_async(arg, callback) {
   setTimeout(function() { callback(arg); }, 10);
 };
 
-function populateHistoricalRecentWeekly() {
-	var now = new Date();
+/** Populates a histroical data table based on given symbols and
+  * configured settings at grabHistoricalSettings();
+  */
+var populateHistoricalData = function(symbolArray, callback) {
+	var settings = grabHistoricalSettings();
 	var dateFormat = require('dateformat');
-	var endDate = dateFormat(now, "isoDate");
-
-	var years = 5;
-	var startDate = (parseInt(now.substr(0,4)) - years) + now.substr(4);
-
-	populateHistorical('historical_weekly', 'w', startDate, endDate);
-};
-
-// This only populates all of the historical data from 5 years ago, only needs to be ran once to populate database.
-function populateHistorical(tableName, period, startDate, endDate) {	
-	// select a symbol from database
-	// import historical data
-
 	var yahooData = require('yahoo-finance');
 
-	var q = 'SELECT * FROM symbols';
-	var newClient = new pg.Client("postgres://localhost:5432/finance");
-	newClient.connect();
-	client.connect();
+	yahooData.historical({
+	  symbols: 	symbolArray,
+	  from: 	settings.startDate,
+	  to: 		settings.endDate,
+	  period: 	settings.period
+	}, function (err, result) {
+	  	if (err) { 
+	  		console.log(err);
+	  		return populateHistoricalData(symbolArray, callback); 
+	  	}
+  		
+  		var insertSetup = "INSERT INTO " + settings.tableName + " (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
 
-    var query = client.query(q);
+		async.forEachOf(result, function(quotes, symbol, callback) {
+			if (quotes[0]) {
+				for (var i = 0; i < quotes.length; i++) {
+					var row = [dateFormat(quotes[i].date, "isoDate"), quotes[i].open, quotes[i].high, quotes[i].low, quotes[i].close, quotes[i].volume, quotes[i].adjClose, quotes[i].symbol];
+					insertSetup += " ( ";
+					for (var j = 0; j < row.length; j++) {
 
-    query.on('row', function(row) {
-    	yahooData.historical({
-		  symbols: [ row.symbol ],
-		  from: startDate,
-		  to: endDate,
-		  period: period
-		}, function (err, result) {
-		  if (err) { throw err; }
-		  _.each(result, function (quotes, symbol) {
-		  	if (quotes[0]) {
-		  		var nestedq = "INSERT INTO " + tableName + " (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
-		  		for (var i = 0; i < quotes.length; i++) {
-			  		// console.log(quotes[i]);
-					var inp = [dateFormat(quotes[i].date, "isoDate"), quotes[i].open, quotes[i].high, quotes[i].low, quotes[i].close, quotes[i].volume, quotes[i].adjClose, quotes[i].symbol];
-					nestedq += " ( "
-					for (var j = 0; j < inp.length; j++) {
-						if (j+1 == inp.length) {
-							nestedq += "'" + inp[j] + "'";
+						if (j + 1 == row.length) {
+							insertSetup += "'" + row[j] + "'";
 						} else {
-							nestedq += "'" + inp[j] + "', ";
+							insertSetup += "'" + row[j] + "', ";
 						}
 					}
-					nestedq +=" ), "
-		  		}
-				var newQ = newClient.query(nestedq.substr(0,nestedq.length-2) + ";", function(err, res) {
-		  			if (err) { console.log(nestedq.substr(0,nestedq.length-2)) };
-					console.log("Inserted Symbol: " + quotes[0].symbol);
+					insertSetup +=" ), ";
+				}
+			}
+			callback();
+		}, function(err) {
+			if (err) { throw err; }
 
-		  		});
-		  	}
-		  });
+			client.query(insertSetup.substr(0, insertSetup.length-2) + ";", function(err, res) {
+	  			if (err) { console.log(err) };
+				console.log("Inserted Symbols: " + symbolArray);
+	  		});
 		});
+
+		return callback();
 	});
-	newClient.on('end', function(){
-		console.log("DONE");
-		newClient.end();
-	});
-	query.on('end', function() { 
-	  client.end();
+};
+
+/* Grabs database symbol object and simplifies into trimmed symbol
+ */
+var formatSymbolsFromDatabase = function(symbolData, callback) {
+	callback(null, symbolData.symbol.trim());
+};
+
+/** Customize type of data and where to be populated: table, period, startDate, endDate
+  */
+function grabHistoricalSettings() {
+	var endDate = new Date();
+	var dateFormat = require('dateformat');
+	var endDate = dateFormat(startDate, "isoDate");
+
+	var years = 10;
+	var startDate = (parseInt(endDate.substr(0,4)) - years) + endDate.substr(4);
+
+	return {
+		'tableName' : 'historical_weekly', 
+		'period' : 'w', 
+		'startDate' : startDate, 
+		'endDate': endDate
+	};
+};
+
+/** Populates all of the historical data based on configured settings
+  * at grabHistoricalSettings();
+  */
+function populateHistorical() {	
+	var yahooData = require('yahoo-finance');
+
+	var q = 'SELECT symbol FROM symbols';
+	client.connect();
+
+	async.waterfall([
+		function(callback)  {
+			client.query(q, function(err, symbols) {
+				if (err) { console.log(err); }
+				console.log("finished grabbing symbols");
+
+				if (typeof symbols == 'undefined') {
+					return callback();
+				}
+
+				async.filter(symbols.rows, removeUndefined, function(result) {
+					async.map(result, formatSymbolsFromDatabase, function(err, result) {
+						if (err) { console.log("format error: " + err); }
+						callback(err, result);
+					});
+				});
+		    });	
+	    },
+	    function(symbols, callback) {
+	    	var newArray = reduceArray(symbols, 100);
+	    	async.mapSeries(newArray, populateHistoricalData, function(err, result) {
+	    		if (err) {
+	    			console.log("Inserting histroical data failed: ", err);
+	    		}
+	    	});
+	    }
+	], function(err, result) {
+
 	});
 };
 
