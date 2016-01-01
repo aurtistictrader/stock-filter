@@ -235,7 +235,7 @@ app.get('/', function(request, response) {
   // response.send('This lists current stock symbols with given criteria');
 
   // populateSymbols(); // used for coping manual symbols to db
-  populateHistorical(); // gets all historical data
+  // populateHistorical(); // gets all historical data
 
   // populateDifference(); // makes up for database difference and current day pricing
 
@@ -259,6 +259,97 @@ function getYearMonth(yearValue, monthValue) {
 	}
 }
 
+var calculateMovingAverage = function(maType, symbol) {
+	var q = 
+		"WITH NumberedRows
+		AS
+		(
+			SELECT  rta.adjclose, rta.date, row_number() OVER (ORDER BY rta.date ASC) AS RowNumber
+			FROM    historical_weekly rta
+			WHERE   rta.symbol = '" + symbol + "'
+		)
+
+		SELECT  nr.date, nr.adjclose,
+			CASE
+				WHEN nr.RowNumber <= " + maType + " THEN NULL
+				ELSE (	SELECT	avg(adjclose)
+				FROM	NumberedRows
+				WHERE	RowNumber <= nr.RowNumber
+				AND 	RowNumber >= nr.RowNumber - " + maType +  "
+			)
+			END AS MovingAverage
+		FROM    NumberedRows nr
+		ORDER BY date DESC";
+
+
+	client.query(q, function(err, result) {
+		if (err) { console.log(err); }
+
+	});
+};
+
+function filterByMovingAverage() {
+	var settings = getMovingAverageSettings();
+
+	var q = "SELECT DISTINCT symbol FROM symbols";
+
+	client.query(q, function(err, result) {
+		if (err) { console.log(err); }
+
+		async.map(result.rows[0], formatSymbolsFromDatabase, function(err, symbols) {
+			var pickedSymbols = [];
+
+			console.log("Calculating... " + symbol);
+			async.each(symbols, function(symbol, callback) {	
+				async.waterfall([
+					function(callback) {
+						var maAverages = [];
+						for (var i = 0; i < settings.maTypes.length; i++) {
+							var ma = calculateMovingAverage(maType, symbol);
+							maAverages.push(ma);
+						}
+						callback(null, maAverages);		
+					},
+					function(maAverages, callback) {
+						var maDiffs = calculateDifferences(maAverages, symbol);
+						callback(null, maDiffs);
+					}
+				], function(err, result) {
+					if (err) { console.log(err); }
+					
+					var symbol = hasReasonableDifferences(result);
+					if (symbol) {
+						pickedSymbols.push(symbol);
+						console.log("picked: " + symbol);
+					}
+				});			
+				callback();
+			});
+
+			return pickedSymbols;
+		};
+	});
+};
+
+/** Calculates moving averages based on table, time period, startDate
+  *
+  */
+function getMovingAverageSettings() {
+	var endDate = new Date();
+	var dateFormat = require('dateformat');
+	var endDate = dateFormat(startDate, "isoDate");
+
+	var startDate = (parseInt(endDate.substr(0,4)) - years) + endDate.substr(4);
+
+	return {
+		'tableName' : 'historical_weekly',
+		'maTypes' : [5, 13, 34, 89, 240],
+		'period': 'w',
+		'latestPeriods' : 21,
+		'startDate' : startDate, 
+		'endDate': endDate
+	};
+};
 
 function searchAndFilter(response) {
 	// Current strategy: LONG TERM BOTTOM UP
@@ -585,6 +676,12 @@ var formatSymbolsFromDatabase = function(symbolData, callback) {
 	callback(null, symbolData.symbol.trim());
 };
 
+/* Grabs database symbol object and simplifies into trimmed symbol
+ */
+var formatAdjcloseFromDatabase = function(adjcloseData, callback) {
+	callback(null, adjcloseData.adjclose);
+};
+
 /** Customize type of data and where to be populated: table, period, startDate, endDate
   */
 function grabHistoricalSettings() {
@@ -638,8 +735,6 @@ function populateHistorical() {
 	    		}
 	    	});
 	    }
-	], function(err, result) {
-
-	});
+	]);
 };
 
