@@ -528,18 +528,24 @@ function custom_async(arg, callback) {
   setTimeout(function() { callback(arg); }, 10);
 };
 
+function populateHistoricalRecentWeekly() {
+	var now = new Date();
+	var dateFormat = require('dateformat');
+	var endDate = dateFormat(now, "isoDate");
+
+	var years = 5;
+	var startDate = (parseInt(now.substr(0,4)) - years) + now.substr(4);
+
+	populateHistorical('historical_weekly', 'w', startDate, endDate);
+};
+
 // This only populates all of the historical data from 5 years ago, only needs to be ran once to populate database.
-function populateHistorical() {	
+function populateHistorical(tableName, period, startDate, endDate) {	
 	// select a symbol from database
 	// import historical data
 
 	var yahooData = require('yahoo-finance');
-	var now = new Date();
-	var dateFormat = require('dateformat');
-	var now = dateFormat(now, "isoDate");
 
-	var years = 5;
-	var past = (parseInt(now.substr(0,4)) - years) + now.substr(4);
 	var q = 'SELECT * FROM symbols';
 	var newClient = new pg.Client("postgres://localhost:5432/finance");
 	newClient.connect();
@@ -550,14 +556,14 @@ function populateHistorical() {
     query.on('row', function(row) {
     	yahooData.historical({
 		  symbols: [ row.symbol ],
-		  from: past,
-		  to: now,
-		  period: 'd'
+		  from: startDate,
+		  to: endDate,
+		  period: period
 		}, function (err, result) {
 		  if (err) { throw err; }
 		  _.each(result, function (quotes, symbol) {
 		  	if (quotes[0]) {
-		  		var nestedq = "INSERT INTO historical (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
+		  		var nestedq = "INSERT INTO " + tableName + " (date, open, high, low, close, volume, adjClose, symbol) VALUES ";
 		  		for (var i = 0; i < quotes.length; i++) {
 			  		// console.log(quotes[i]);
 					var inp = [dateFormat(quotes[i].date, "isoDate"), quotes[i].open, quotes[i].high, quotes[i].low, quotes[i].close, quotes[i].volume, quotes[i].adjClose, quotes[i].symbol];
