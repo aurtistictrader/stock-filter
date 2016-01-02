@@ -261,6 +261,9 @@ function getYearMonth(yearValue, monthValue) {
 	}
 }
 
+/** Calculates moving average for a symbol depending on maType
+  * @maTypeSymbol { maType: 5, symbol: 'AAPL'}
+  */
 var calculateMovingAverage = function(maTypeSymbol, callback) {
 	var maType = maTypeSymbol.maType;
 	var symbol = maTypeSymbol.symbol;
@@ -314,19 +317,21 @@ function filterByMovingAverage() {
 
 				async.each(symbols, function(symbol, callback) {	
 					console.log("Calculating... " + symbol);
-					var newMaSymbol = [];
+					var newMaSymbols = [];
 					for (var i = 0; i < settings.maTypes.length; i++) {
-						newMaSymbol.push({ maType: settings.maTypes[i], symbol: symbol });
+						newMaSymbols.push({ maType: settings.maTypes[i], symbol: symbol });
 					}
 
-					async.map(newMaSymbol, calculateMovingAverage, function(err, results) {
+					async.map(newMaSymbols, calculateMovingAverage, function(err, results) {
 						if (err) {
-							console.log(err);	
+							console.log(err);
 						} 
-						
-						function(results, callback) {
-							var maDiffs = calculateDifferences(maAverages, symbol);
-							callback(null, maDiffs);
+
+						async.map(results, calculateDifferences, function(err, results) {
+							if (err) {
+								console.log(err);
+							} 							
+								
 						}
 
 						// var symbol = hasReasonableDifferences(result);
