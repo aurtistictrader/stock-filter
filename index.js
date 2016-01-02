@@ -261,6 +261,33 @@ function getYearMonth(yearValue, monthValue) {
 	}
 }
 
+/** Filter the maArrays by difference calculations. First element is the standard.
+  *
+  */
+var filterDifferences = function(maArray, callback) {
+	var settings = getMovingAverageSettings();
+	var arrayDiffs = [];
+	arrayDiffs = Array.apply(null, Array(settings.latestPeriods)).map(Number.prototype.valueOf,0);
+
+	for (var i = 1; i < maArray.length; i++) {
+		for (var j = 0; j < settings.latestPeriods; j++) {
+			arrayDiffs[j] += Math.abs((maArray[0][j] - maArray[i][j]) / maArray[0][j]);
+		}
+	}
+
+	var totalSum = 0;
+	for (var i = 0; i < arrayDiffs.length; i++) {
+		totalSum += arrayDiffs[i];
+	}
+
+	var average = totalSum / arrayDiffs.length;
+	if (average < 0.10) {
+		return callback(null, true);
+	} else {
+		return callback(null, false);
+	}
+}
+
 /** Calculates moving average for a symbol depending on maType
   * @maTypeSymbol { maType: 5, symbol: 'AAPL'}
   */
@@ -287,20 +314,113 @@ var calculateMovingAverage = function(maTypeSymbol, callback) {
 		"FROM    NumberedRows nr " +
 		"ORDER BY date DESC";
 
-	client.query(q, function(err, result) {
-		if (err) { console.log(err); }
+	var pg = require('pg');
+    pg.connect(conString, function(err, client, done) {
+        client.query(q, function(err, result) {
 
-		async.map(result.rows, formatMovingAverageFromDatabase, function(err, result) {
+			async.map(result.rows, formatMovingAverageFromDatabase, function(err, result) {
+				if (err) { console.log(err); }
+	          	done(); 
+				return callback(null, result);
+			}); 
+        });
+    });
+};
+
+/** Calculates moving average difference within a period and filters 
+  * @maTypeArray { maType: 5, maArray: [20, 30, 20]}
+  */
+var calculateDifferences = function(maTypeArray, callback) {
+	async.waterfall([
+		function(callback) {
+			var maxType = 0;
+			for (var i = 0; i < maTypeArray.length; i++) {
+				var maType = maTypeArray[i].maType;
+				if (maType > maxType) {
+					maxType = maType;
+				}
+			}
+
+			for (var i = 0; i < maTypeArray.length; i++) {
+				var maType = maTypeArray[i].maType;
+				var maArray = maTypeArray[i].maArray;
+
+				if (maType === maxType) {
+					callback(null, maTypeArray[i]);
+				}
+			}
+		},
+		function(standard, callback) {
+			for (var i = 0; i < maTypeArray.length; i++) {
+				var maType = maTypeArray[i].maType;
+				var maArray = maTypeArray[i].maArray;
+
+				if (maType === standard.maType) {
+					maTypeArray.splice(i, 1);
+
+					async.series([
+						function(callback) {
+							var maArrayOnly = [standard.maArray];
+							for (j = 0; j < maTypeArray.length; j++) {
+								maArrayOnly.push(maTypeArray[j].maArray);
+							}
+							callback(null, maArrayOnly);
+						}
+					], function(err, result) {
+						callback(null, result);
+					});
+				}
+			}
+		}
+	], function(err, result) {
+		if (err) {
+			console.log(err);
+		}
+
+		async.map(result, filterDifferences, function(err, booleanResult) {
 			if (err) { console.log(err); }
-			callback(null, result);
+			callback(null, booleanResult);
 		});
 	});
 };
 
-function filterByMovingAverage() {
+var pickSymbols = function(symbol, callback) {
 	var settings = getMovingAverageSettings();
 
-	var q = "SELECT DISTINCT symbol FROM symbols LIMIT 1";
+	console.log("Calculating... " + symbol);
+	var newMaSymbols = [];
+	for (var i = 0; i < settings.maTypes.length; i++) {
+		newMaSymbols.push({ maType: settings.maTypes[i], symbol: symbol });
+	}
+
+	async.mapLimit(newMaSymbols, 5, calculateMovingAverage, function(err, results) {
+		if (err) {
+			console.log(err);
+		} 
+
+		var newMaArray = [];
+		for (var i = 0; i < settings.maTypes.length; i++) {
+			newMaArray.push({ maType: settings.maTypes[i], maArray: results[i] });
+		}
+
+		async.map([newMaArray], calculateDifferences, function(err, results) {
+			if (err) {
+				console.log(err);
+			} 		
+
+			if (results[0][0] === true) {
+				console.log("picked: " + symbol);
+				return callback(true);
+			} else {
+				console.log("not picked: " + symbol);
+				return callback(false);
+			}
+		});
+	});
+}
+
+function filterByMovingAverage() {
+	var q = "SELECT DISTINCT symbol FROM symbols WHERE symbol > 'HSY' ORDER BY symbol ASC";
 
 	client.connect();
 	
@@ -313,40 +433,37 @@ function filterByMovingAverage() {
 		},
 		function(rows, callback) {
 			async.map(rows, formatSymbolsFromDatabase, function(err, symbols) {
-				var pickedSymbols = [];
-
-				async.each(symbols, function(symbol, callback) {	
-					console.log("Calculating... " + symbol);
-					var newMaSymbols = [];
-					for (var i = 0; i < settings.maTypes.length; i++) {
-						newMaSymbols.push({ maType: settings.maTypes[i], symbol: symbol });
-					}
-
-					async.map(newMaSymbols, calculateMovingAverage, function(err, results) {
-						if (err) {
-							console.log(err);
-						} 
-
-						async.map(results, calculateDifferences, function(err, results) {
-							if (err) {
-								console.log(err);
-							} 							
-								
+				async.waterfall([
+					function(callback) {
+						async.filter(symbols, pickSymbols, function(results) {	
+							callback(null, results);
+						});
+					},
+					function(result, callback) {
+						var writeString = "";
+						for (var i = 0; i < result.length; i++) {
+							writeString += result + '\n';
 						}
-
-						// var symbol = hasReasonableDifferences(result);
-						// if (symbol) {
-						// 	pickedSymbols.push(symbol);
-						// 	console.log("picked: " + symbol);
-						// }
-					});
-					callback();
+						callback(null, writeString);
+					}
+				], function(err, result) {
+					callback(null, result);
 				});
-
-				callback(null, pickedSymbols);
 			});
 		}
-	]);		
+	], function(err, result) {
+		if (err) {
+			console.log(err);
+		}
+
+		fs.writeFile("./private/pickedstocks.csv", result, function(err) {
+		    if(err) {
+		        console.log(err);
+		    } else {
+				console.log("Completed writing picked stocks!");
+		    }
+		});
+	});		
 };
 
 /** Configure moving averages based on table, time period, startDate
