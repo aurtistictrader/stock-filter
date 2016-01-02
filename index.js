@@ -349,8 +349,7 @@ function filterByMovingAverage() {
 	]);		
 };
 
-/** Calculates moving averages based on table, time period, startDate
-  *
+/** Configure moving averages based on table, time period, startDate
   */
 function getMovingAverageSettings() {
 	var endDate = new Date();
