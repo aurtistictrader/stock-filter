@@ -323,18 +323,18 @@ function filterByMovingAverage() {
 						if (err) {
 							console.log(err);	
 						} 
-						console.log(results);
-					});
-					// 	// function(maAverages, callback) {
-					// 	// 	var maDiffs = calculateDifferences(maAverages, symbol);
-					// 	// 	callback(null, maDiffs);
-					// 	// }
+						
+						function(results, callback) {
+							var maDiffs = calculateDifferences(maAverages, symbol);
+							callback(null, maDiffs);
+						}
 
-					// 	// var symbol = hasReasonableDifferences(result);
-					// 	// if (symbol) {
-					// 	// 	pickedSymbols.push(symbol);
-					// 	// 	console.log("picked: " + symbol);
-					// 	// }
+						// var symbol = hasReasonableDifferences(result);
+						// if (symbol) {
+						// 	pickedSymbols.push(symbol);
+						// 	console.log("picked: " + symbol);
+						// }
+					});
 					callback();
 				});
 
